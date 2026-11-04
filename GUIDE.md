@@ -24,7 +24,7 @@ Push that commit to `main` or `master`. The workflow also runs when you open a p
 The workflow file checks out the application repository, then runs:
 
 ```yaml
-uses: TemTech-Solutions/attack-path-elimination@a9c9816bf77e9a86a979ccd1ce80513647491368
+uses: TemTech-Solutions/attack-path-elimination@be1e5ddba0f48bdda8f58887d5b18bcb3dcda508
 ```
 
 That value is a full commit SHA. The action refuses a branch or a tag, so a workflow that says `@main` or `@v1` fails before it analyzes anything. Each push to `main` rewrites this hook to that push's commit and pushes the updated file. A repository that already committed an older SHA keeps running that commit until someone copies the new hook.
