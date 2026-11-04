@@ -1,13 +1,13 @@
 # Attack path elimination
 
-Hook a repository by adding one workflow. GitHub checks that repository out and downloads the analyzer from this public repository. The application is not copied here.
+Hook a repository by adding one workflow. GitHub checks that repository out and downloads the analyzer from [TemTech-Solutions/attack-path-elimination](https://github.com/TemTech-Solutions/attack-path-elimination). The application is not copied into that repository.
 
 From the repository you want to scan:
 
 ```powershell
-cd D:\src\your-test-repo
+cd path\to\repository-to-scan
 New-Item -ItemType Directory -Force .github\workflows | Out-Null
-Invoke-WebRequest https://raw.githubusercontent.com/vekis11/attack-path-elimination_POC/main/install/github/attack-paths.yml -OutFile .github\workflows\attack-paths.yml
+Invoke-WebRequest https://raw.githubusercontent.com/TemTech-Solutions/attack-path-elimination/main/install/github/attack-paths.yml -OutFile .github\workflows\attack-paths.yml
 git add .github\workflows\attack-paths.yml
 git commit -m "Add attack path scan"
 git push
@@ -23,12 +23,13 @@ Path risk is `exposure × privilege × asset × exploitability`, scaled to 0–1
 
 ## Local scan
 
-From a clone of this platform, point the analyzer at the other repository:
+From a clone of [TemTech-Solutions/attack-path-elimination](https://github.com/TemTech-Solutions/attack-path-elimination), point the analyzer at the other repository:
 
 ```powershell
+cd attack-path-elimination
 pip install -r requirements.txt
-python -m pathfinder analyze D:\src\your-test-repo --out out\your-test-repo
-python -m pathfinder comment D:\src\your-test-repo
+python -m pathfinder analyze path\to\repository-to-scan --out out\repository-to-scan
+python -m pathfinder comment path\to\repository-to-scan
 python -m pathfinder serve
 ```
 

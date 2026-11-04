@@ -170,16 +170,16 @@ def test_install_hook_writes_into_the_other_repo(tmp_path: Path):
     published = (Path(__file__).resolve().parents[1] / "install" / "github" / "attack-paths.yml").read_text(encoding="utf-8")
     assert text == published
     assert destination == tmp_path / ".github" / "workflows" / "attack-paths.yml"
-    assert "uses: vekis11/attack-path-elimination_POC@main" in text
-    assert "https://github.com/vekis11/attack-path-elimination_POC" in text
+    assert "uses: TemTech-Solutions/attack-path-elimination@main" in text
+    assert "https://github.com/TemTech-Solutions/attack-path-elimination" in text
     assert "actions/checkout@v4" in text
     assert "pull_request_target" not in text
     try:
-        install(tmp_path, tool="vekis11/attack-path-elimination_POC")
+        install(tmp_path, tool="TemTech-Solutions/attack-path-elimination")
         raise AssertionError("second install should refuse to overwrite")
     except InstallError:
         pass
-    gitlab = install(tmp_path, platform="gitlab", tool="vekis11/attack-path-elimination_POC", force=True)
+    gitlab = install(tmp_path, platform="gitlab", tool="TemTech-Solutions/attack-path-elimination", force=True)
     gitlab_text = gitlab.read_text(encoding="utf-8")
     assert gitlab.name == "attack-paths.gitlab-ci.yml"
     assert "python -m pathfinder analyze ." in gitlab_text

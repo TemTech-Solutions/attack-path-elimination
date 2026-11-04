@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-PUBLIC_SLUG = "vekis11/attack-path-elimination_POC"
+PUBLIC_SLUG = "TemTech-Solutions/attack-path-elimination"
 PUBLIC_REF = "main"
 PUBLIC_URL = f"https://github.com/{PUBLIC_SLUG}"
 PUBLIC_GIT = f"{PUBLIC_URL}.git"

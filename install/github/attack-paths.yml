@@ -1,4 +1,4 @@
-# Installed from https://github.com/vekis11/attack-path-elimination_POC
+# Installed from https://github.com/TemTech-Solutions/attack-path-elimination
 name: Attack paths
 
 on:
@@ -18,4 +18,4 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Analyze attack paths
-        uses: vekis11/attack-path-elimination_POC@main
+        uses: TemTech-Solutions/attack-path-elimination@main

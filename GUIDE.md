@@ -1,6 +1,6 @@
 # Step-by-step guide
 
-Use this platform by adding one workflow to the repository you want to scan. GitHub checks that repository out and downloads the analyzer from the public platform repository [vekis11/attack-path-elimination_POC](https://github.com/vekis11/attack-path-elimination_POC). The application stays in its own repository.
+Use [TemTech-Solutions/attack-path-elimination](https://github.com/TemTech-Solutions/attack-path-elimination) by adding one workflow to the repository you want to scan. GitHub checks that repository out and downloads the analyzer from that repository. The application stays in its own repository.
 
 The scan only reads source, pipeline, and infrastructure files. It does not install the application, run its tests, or produce exploit steps. Each finding tells you which path to remove.
 
@@ -8,12 +8,12 @@ Commands below are for PowerShell.
 
 ## 1. Hook the repository you want to scan
 
-Open a terminal in that repository. This is not the platform folder.
+Open a terminal in that repository. This is not the [TemTech-Solutions/attack-path-elimination](https://github.com/TemTech-Solutions/attack-path-elimination) folder.
 
 ```powershell
-cd D:\src\your-test-repo
+cd path\to\repository-to-scan
 New-Item -ItemType Directory -Force .github\workflows | Out-Null
-Invoke-WebRequest https://raw.githubusercontent.com/vekis11/attack-path-elimination_POC/main/install/github/attack-paths.yml -OutFile .github\workflows\attack-paths.yml
+Invoke-WebRequest https://raw.githubusercontent.com/TemTech-Solutions/attack-path-elimination/main/install/github/attack-paths.yml -OutFile .github\workflows\attack-paths.yml
 git add .github\workflows\attack-paths.yml
 git commit -m "Add attack path scan"
 git push
@@ -24,7 +24,7 @@ Push that commit to `main` or `master`. The workflow also runs when you open a p
 The workflow file checks out the application repository, then runs:
 
 ```yaml
-uses: vekis11/attack-path-elimination_POC@main
+uses: TemTech-Solutions/attack-path-elimination@main
 ```
 
 ## 2. Read the result
@@ -100,7 +100,7 @@ Python calls are resolved across files from imports. The other languages contrib
 From the application repository:
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/vekis11/attack-path-elimination_POC/main/install/gitlab/attack-paths.gitlab-ci.yml -OutFile attack-paths.gitlab-ci.yml
+Invoke-WebRequest https://raw.githubusercontent.com/TemTech-Solutions/attack-path-elimination/main/install/gitlab/attack-paths.gitlab-ci.yml -OutFile attack-paths.gitlab-ci.yml
 ```
 
 Add this to that repository's `.gitlab-ci.yml` and push:
@@ -110,17 +110,17 @@ include:
   - local: attack-paths.gitlab-ci.yml
 ```
 
-The job clones `https://github.com/vekis11/attack-path-elimination_POC.git` and analyzes the application checkout. The HTML report is a job artifact under `attack-paths-report/`.
+The job clones `https://github.com/TemTech-Solutions/attack-path-elimination.git` and analyzes the application checkout. The HTML report is a job artifact under `attack-paths-report/`.
 
 ## 6. Scan a local checkout
 
-Use this when you want a report on your machine before the GitHub run finishes. From a clone of this platform:
+Use this when you want a report on your machine before the GitHub run finishes. From a clone of [TemTech-Solutions/attack-path-elimination](https://github.com/TemTech-Solutions/attack-path-elimination):
 
 ```powershell
-cd C:\Users\vekis\Desktop\CICD\attack-path-elimination_POC
+cd attack-path-elimination
 pip install -r requirements.txt
-python -m pathfinder analyze D:\src\your-test-repo --out out\your-test-repo
-start out\your-test-repo\report.html
+python -m pathfinder analyze path\to\repository-to-scan --out out\repository-to-scan
+start out\repository-to-scan\report.html
 ```
 
 `python --version` should be 3.11 or newer. The command writes:
@@ -136,7 +136,7 @@ start out\your-test-repo\report.html
 To print the pull-request text:
 
 ```powershell
-python -m pathfinder comment D:\src\your-test-repo
+python -m pathfinder comment path\to\repository-to-scan
 ```
 
 To serve the latest report:
