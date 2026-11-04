@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Attack paths</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0c1222;
+    --panel: #141c2f;
+    --line: #27344d;
+    --text: #e7eefc;
+    --muted: #93a0b8;
+    --critical: #fb7185;
+    --high: #fb923c;
+    --medium: #facc15;
+    --low: #4ade80;
+    --accent: #7dd3fc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 15px/1.45 "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header, main { padding: 20px 24px; }
+  header { border-bottom: 1px solid var(--line); }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  .muted { color: var(--muted); }
+  .stats, .factors { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .stat, .factor {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    min-width: 140px;
+  }
+  .stat b, .factor b { display: block; font-size: 20px; }
+  .banner {
+    margin-top: 16px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: #1a2744;
+    border: 1px solid #34517a;
+  }
+  .layout { display: grid; grid-template-columns: 280px 1fr 320px; gap: 16px; }
+  @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px;
+    min-height: 240px;
+  }
+  .path {
+    width: 100%;
+    text-align: left;
+    color: inherit;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 8px;
+    cursor: pointer;
+    margin-bottom: 6px;
+  }
+  .path.active, .path:hover { border-color: var(--line); background: #1c2740; }
+  .band { font-weight: 700; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+  .Critical { color: var(--critical); }
+  .High { color: var(--high); }
+  .Medium { color: var(--medium); }
+  .Low { color: var(--low); }
+  .chain { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .hop {
+    background: #10192d;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px;
+    min-width: 140px;
+    max-width: 220px;
+    cursor: pointer;
+  }
+  .hop.selected { border-color: var(--accent); }
+  .arrow { color: var(--accent); }
+  ul { margin: 8px 0 0; padding-left: 18px; }
+  button.ghost {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  code { color: #d6e4ff; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Attack paths</h1>
+  <p class="muted"><a href="graph.html">Open the graph</a> · solid edges are written in a file, dashed edges were resolved</p>
+  <div class="muted" id="subtitle"></div>
+  <div class="stats" id="stats"></div>
+  <div class="banner" id="banner"></div>
+</header>
+<main>
+  <div style="display:flex; gap:8px; margin-bottom:12px;">
+    <button class="ghost" id="mode" type="button">Show every component on a path</button>
+  </div>
+  <div class="layout">
+    <section class="panel" id="path-list"></section>
+    <section class="panel">
+      <div class="chain" id="chain"></div>
+      <div class="factors" id="factors"></div>
+      <h3>What to remove</h3>
+      <ul id="recs"></ul>
+    </section>
+    <section class="panel" id="detail"><p class="muted">Select a component.</p></section>
+  </div>
+</main>
+<script id="data" type="application/json">__PAYLOAD__</script>
+<script>
+const data = JSON.parse(document.getElementById("data").textContent);
+const nodes = Object.fromEntries(data.nodes.map((node) => [node.id, node]));
+const title = document.getElementById("title");
+title.textContent = data.repository + " attack paths";
+document.getElementById("subtitle").textContent =
+  "Baseline PER " + data.per.rate + " · eligible " + data.per.eligible + " · erased " + data.per.erased +
+  (data.trend && data.trend.reduction !== null ? " · critical-path change " + Math.round(data.trend.reduction * 100) + "%" : " · baseline snapshot");
+
+const card = data.scorecard;
+const stats = [
+  ["Applications", card.applications],
+  ["Components", card.components],
+  ["Critical paths", card.critical_paths],
+  ["Identity paths", card.identity_paths],
+  ["Cloud paths", card.cloud_paths],
+  ["Supply chain", card.supply_chain_paths],
+  ["AI paths", card.ai_paths || 0],
+  ["Attack path score", card.attack_path_score],
+  ["Identity risk", card.identity_risk],
+  ["Cloud risk", card.cloud_risk],
+  ["Supply chain risk", card.supply_chain_risk]
+];
+const statsEl = document.getElementById("stats");
+stats.forEach(([label, value]) => {
+  const el = document.createElement("div");
+  el.className = "stat";
+  const b = document.createElement("b");
+  b.textContent = value;
+  el.appendChild(b);
+  el.appendChild(document.createTextNode(label));
+  statsEl.appendChild(el);
+});
+
+let selected = 0;
+let showAll = false;
+const pathList = document.getElementById("path-list");
+const chainEl = document.getElementById("chain");
+const banner = document.getElementById("banner");
+
+function renderList() {
+  pathList.textContent = "";
+  data.paths.forEach((path, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "path" + (index === selected ? " active" : "");
+    const band = document.createElement("div");
+    band.className = "band " + path.band;
+    band.textContent = path.band + " · " + path.score + " · " + path.category.replaceAll("_", " ");
+    button.appendChild(band);
+    const text = document.createElement("div");
+    text.textContent = path.narrative;
+    button.appendChild(text);
+    button.addEventListener("click", () => { selected = index; render(); });
+    pathList.appendChild(button);
+  });
+  if (!data.paths.length) {
+    pathList.textContent = "No composed attack path was found.";
+  }
+}
+
+function renderChain() {
+  chainEl.textContent = "";
+  const path = data.paths[selected];
+  banner.textContent = path ? path.narrative : "No composed chain.";
+  if (!path) return;
+  const hops = showAll ? data.nodes.filter((node) => node.attack_paths > 0).map((node) => ({
+    label: node.name, node_id: node.id, file: node.file, line: node.line, rule: node.kind, evidence: "", recommendation: ""
+  })) : path.hops;
+  hops.forEach((hop, index) => {
+    if (index > 0 && !showAll) {
+      const arrow = document.createElement("span");
+      arrow.className = "arrow";
+      arrow.textContent = "↓";
+      chainEl.appendChild(arrow);
+    }
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "hop";
+    const strong = document.createElement("strong");
+    strong.textContent = hop.label;
+    card.appendChild(strong);
+    const where = document.createElement("div");
+    where.className = "muted";
+    where.textContent = [hop.rule, hop.tier, hop.file, hop.line].filter(Boolean).join(" · ");
+    card.appendChild(where);
+    card.addEventListener("click", () => renderDetail(hop.node_id, path));
+    chainEl.appendChild(card);
+  });
+  const factors = document.getElementById("factors");
+  factors.textContent = "";
+  [["Exposure", path.exposure], ["Privilege", path.privilege], ["Asset", path.asset], ["Exploitability", path.exploitability], ["Score", path.score]].forEach(([label, value]) => {
+    const el = document.createElement("div");
+    el.className = "factor";
+    const b = document.createElement("b");
+    b.textContent = value;
+    el.appendChild(b);
+    el.appendChild(document.createTextNode(label));
+    factors.appendChild(el);
+  });
+  const recs = document.getElementById("recs");
+  recs.textContent = "";
+  path.recommendations.forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item;
+    recs.appendChild(li);
+  });
+  renderDetail(path.hops[0] && path.hops[0].node_id, path);
+}
+
+function renderDetail(nodeId, path) {
+  const detail = document.getElementById("detail");
+  detail.textContent = "";
+  const node = nodes[nodeId];
+  if (!node) {
+    detail.textContent = "No component selected.";
+    return;
+  }
+  const heading = document.createElement("h2");
+  heading.textContent = node.name;
+  detail.appendChild(heading);
+  const meta = document.createElement("p");
+  meta.className = "muted";
+  meta.textContent = [node.kind, node.file, node.line].filter(Boolean).join(" · ");
+  detail.appendChild(meta);
+  const rows = [
+    ["Risk score", node.risk],
+    ["Incoming", node.incoming],
+    ["Outgoing", node.outgoing],
+    ["Receives", node.receives || "—"],
+    ["Calls", (node.calls || []).join(", ") || "—"]
+  ];
+  rows.forEach(([label, value]) => {
+    const p = document.createElement("p");
+    const b = document.createElement("b");
+    b.textContent = label + ": ";
+    p.appendChild(b);
+    p.appendChild(document.createTextNode(String(value)));
+    detail.appendChild(p);
+  });
+  const secrets = data.edges.filter((edge) => edge.source === node.id || edge.target === node.id)
+    .map((edge) => nodes[edge.source === node.id ? edge.target : edge.source])
+    .filter((item) => item && item.kind === "secret");
+  const secretP = document.createElement("p");
+  const secretB = document.createElement("b");
+  secretB.textContent = "Connected secrets: ";
+  secretP.appendChild(secretB);
+  secretP.appendChild(document.createTextNode(String(secrets.length)));
+  detail.appendChild(secretP);
+  const related = data.paths.filter((item) => item.node_ids.includes(node.id));
+  const title = document.createElement("h3");
+  title.textContent = "Attack paths";
+  detail.appendChild(title);
+  const list = document.createElement("ul");
+  related.forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item.band + " " + item.score + " — " + item.narrative;
+    list.appendChild(li);
+  });
+  detail.appendChild(list);
+  if (path) {
+    const evidenceTitle = document.createElement("h3");
+    evidenceTitle.textContent = "Evidence on this path";
+    detail.appendChild(evidenceTitle);
+    const evidence = document.createElement("ul");
+    path.findings.forEach((finding) => {
+      const li = document.createElement("li");
+      li.textContent = finding.rule + " " + finding.title + " (" + finding.file + ":" + finding.line + ")";
+      evidence.appendChild(li);
+    });
+    detail.appendChild(evidence);
+  }
+}
+
+function render() {
+  renderList();
+  renderChain();
+}
+document.getElementById("mode").addEventListener("click", () => {
+  showAll = !showAll;
+  document.getElementById("mode").textContent = showAll ? "Show the selected chain" : "Show every component on a path";
+  renderChain();
+});
+render();
+</script>
+</body>
+</html>

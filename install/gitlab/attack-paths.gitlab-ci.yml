@@ -1,0 +1,21 @@
+# Installed from https://github.com/vekis11/attack-path-elimination_POC
+# Include this file from the repository's .gitlab-ci.yml:
+# include:
+#   - local: attack-paths.gitlab-ci.yml
+attack-paths:
+  image: python:3.12
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - git clone --depth 1 https://github.com/vekis11/attack-path-elimination_POC.git "$CI_PROJECT_DIR/.pathfinder-tool"
+    - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
+    - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
+  artifacts:
+    when: always
+    paths:
+      - attack-paths-report/report.html
+      - attack-paths-report/graph.html
+      - attack-paths-report/graph-report.md
+      - attack-paths-report/pr-comment.md
+      - attack-paths-report/graph.json

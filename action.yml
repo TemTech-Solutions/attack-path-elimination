@@ -1,0 +1,70 @@
+name: Attack path elimination
+description: Analyze the calling repository in place and publish the attack-path report. The application stays in its own checkout.
+
+inputs:
+  path:
+    description: Directory inside the repository to analyze
+    required: false
+    default: "."
+  out:
+    description: Directory for report.html, graph.json, and pr-comment.md
+    required: false
+    default: attack-paths-report
+  comment:
+    description: Update one pull-request comment with the chains
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Analyze this repository
+      shell: bash
+      run: |
+        python -m pip install --quiet -r "${{ github.action_path }}/requirements.txt"
+        PYTHONPATH="${{ github.action_path }}" python -m pathfinder analyze "${{ inputs.path }}" --out "${{ inputs.out }}"
+
+    - name: Upload the HTML report
+      uses: actions/upload-artifact@v4
+      with:
+        name: attack-path-report
+        path: ${{ inputs.out }}
+        if-no-files-found: error
+
+    - name: Write the chain into the job summary
+      shell: bash
+      run: |
+        {
+          echo "## Attack paths"
+          echo
+          cat "${{ inputs.out }}/pr-comment.md"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Comment on the pull request
+      if: ${{ inputs.comment == 'true' && github.event_name == 'pull_request' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+        OUT: ${{ inputs.out }}
+      run: |
+        marker="<!-- pathfinder-attack-paths -->"
+        {
+          echo "$marker"
+          echo
+          cat "$OUT/pr-comment.md"
+        } > "$RUNNER_TEMP/pathfinder-comment.md"
+        existing="$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --jq ".[] | select(.body | contains(\"${marker}\")) | .id" | head -n 1 || true)"
+        if [ -n "$existing" ]; then
+          jq -n --rawfile body "$RUNNER_TEMP/pathfinder-comment.md" '{body:$body}' > "$RUNNER_TEMP/pathfinder-comment.json"
+          gh api --method PATCH "repos/${REPO}/issues/comments/${existing}" --input "$RUNNER_TEMP/pathfinder-comment.json"
+        else
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$RUNNER_TEMP/pathfinder-comment.md"
+        fi

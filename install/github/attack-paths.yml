@@ -1,0 +1,21 @@
+# Installed from https://github.com/vekis11/attack-path-elimination_POC
+name: Attack paths
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  attack-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+
+      - name: Analyze attack paths
+        uses: vekis11/attack-path-elimination_POC@main

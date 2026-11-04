@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Attack graph</title>
+<style>
+  :root { color-scheme: dark; --bg: #0c1222; --panel: #141c2f; --line: #27344d; --text: #e7eefc; --muted: #93a0b8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; display: grid; grid-template-rows: auto 1fr; background: var(--bg); color: var(--text); font: 14px/1.4 "Segoe UI", system-ui, sans-serif; }
+  header { display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  header input, header select { background: #10192d; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+  a { color: #7dd3fc; }
+  main { display: grid; grid-template-columns: 1fr 320px; min-height: 0; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } aside { max-height: 40vh; } }
+  canvas { width: 100%; height: 100%; display: block; }
+  aside { border-left: 1px solid var(--line); overflow: auto; padding: 12px; background: #10182b; }
+  .muted { color: var(--muted); }
+  button.path { display: block; width: 100%; text-align: left; margin: 0 0 8px; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer; }
+  button.path.active { border-color: #7dd3fc; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+  .swatch { display: inline-block; width: 22px; height: 0; border-top: 2px solid #d6e4ff; margin-right: 6px; vertical-align: middle; }
+  .swatch.inferred { border-top-style: dashed; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Attack graph</h1>
+  <input id="search" type="search" placeholder="Find a component" />
+  <select id="paths"></select>
+  <span class="legend"><span><i class="swatch"></i>EXTRACTED</span><span><i class="swatch inferred"></i>INFERRED</span></span>
+  <a href="report.html">Ranked paths</a>
+</header>
+<main>
+  <canvas id="view"></canvas>
+  <aside id="detail"><p class="muted">Select a node. Color is the community. A solid edge was written in a file. A dashed edge was resolved by the analyzer. Path confidence is the weakest hop.</p></aside>
+</main>
+<script id="data" type="application/json">__PAYLOAD__</script>
+<script>
+const data = JSON.parse(document.getElementById("data").textContent);
+const palette = ["#7dd3fc", "#fb7185", "#facc15", "#4ade80", "#c4b5fd", "#fb923c", "#67e8f9", "#f9a8d4", "#86efac", "#fdba74"];
+const nodes = data.graph.nodes.map((node, index) => ({
+  ...node,
+  x: 480 + Math.cos(index) * 220 + (index % 7) * 8,
+  y: 320 + Math.sin(index * 1.7) * 180 + (index % 5) * 6,
+  vx: 0,
+  vy: 0
+}));
+const byId = Object.fromEntries(nodes.map((node) => [node.id, node]));
+const edges = data.graph.edges.filter((edge) => byId[edge.source] && byId[edge.target]);
+const canvas = document.getElementById("view");
+const ctx = canvas.getContext("2d");
+let selected = null;
+let activePath = null;
+let query = "";
+
+document.getElementById("title").textContent = data.repository + " attack graph";
+const pathSelect = document.getElementById("paths");
+const all = document.createElement("option");
+all.value = "";
+all.textContent = "All components";
+pathSelect.appendChild(all);
+data.paths.forEach((path, index) => {
+  const option = document.createElement("option");
+  option.value = String(index);
+  option.textContent = path.band + " " + path.score + " · " + path.confidence + " · " + path.category;
+  pathSelect.appendChild(option);
+});
+pathSelect.addEventListener("change", () => {
+  activePath = pathSelect.value === "" ? null : data.paths[Number(pathSelect.value)];
+  draw();
+  if (activePath) explainPath(activePath);
+});
+document.getElementById("search").addEventListener("input", (event) => {
+  query = event.target.value.trim().toLowerCase();
+  const hit = nodes.find((node) => node.name.toLowerCase().includes(query));
+  if (hit && query) select(hit);
+  else draw();
+});
+
+function resize() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+}
+window.addEventListener("resize", () => { resize(); draw(); });
+resize();
+
+function tick() {
+  const width = canvas.width || 800;
+  const height = canvas.height || 600;
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i];
+      const b = nodes[j];
+      let dx = a.x - b.x;
+      let dy = a.y - b.y;
+      let dist = Math.hypot(dx, dy) || 1;
+      const force = 900 / (dist * dist);
+      dx /= dist; dy /= dist;
+      a.vx += dx * force; a.vy += dy * force;
+      b.vx -= dx * force; b.vy -= dy * force;
+    }
+  }
+  edges.forEach((edge) => {
+    const a = byId[edge.source];
+    const b = byId[edge.target];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const force = (dist - 90) * 0.012;
+    a.vx += dx / dist * force; a.vy += dy / dist * force;
+    b.vx -= dx / dist * force; b.vy -= dy / dist * force;
+  });
+  nodes.forEach((node) => {
+    node.vx += (width / 2 - node.x) * 0.004;
+    node.vy += (height / 2 - node.y) * 0.004;
+    node.vx *= 0.75; node.vy *= 0.75;
+    node.x += node.vx; node.y += node.vy;
+    node.x = Math.max(24, Math.min(width - 24, node.x));
+    node.y = Math.max(24, Math.min(height - 24, node.y));
+  });
+}
+
+function onPath(node) {
+  return activePath && activePath.node_ids.includes(node.id);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const focus = new Set(activePath ? activePath.node_ids : []);
+  edges.forEach((edge) => {
+    const a = byId[edge.source];
+    const b = byId[edge.target];
+    const hot = activePath && activePath.edges.some((item) => item.source === edge.source && item.target === edge.target && item.kind === edge.relation);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = hot ? "#f8fafc" : (edge.confidence === "INFERRED" ? "#64748b" : "#94a3b8");
+    ctx.globalAlpha = activePath && !hot ? 0.15 : 0.9;
+    ctx.lineWidth = hot ? 2.4 : 1;
+    ctx.setLineDash(edge.confidence === "INFERRED" ? [5, 4] : []);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  });
+  ctx.globalAlpha = 1;
+  nodes.forEach((node) => {
+    const dim = activePath && !focus.has(node.id);
+    const match = query && node.name.toLowerCase().includes(query);
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, node.id === (selected && selected.id) ? 9 : 6, 0, Math.PI * 2);
+    ctx.fillStyle = palette[(node.community || 1) % palette.length];
+    ctx.globalAlpha = dim ? 0.2 : 1;
+    ctx.fill();
+    if (match || node.degree >= 3 || node.id === (selected && selected.id) || onPath(node)) {
+      ctx.font = "12px Segoe UI, sans-serif";
+      ctx.fillStyle = "#e7eefc";
+      ctx.fillText(node.name, node.x + 10, node.y + 4);
+    }
+  });
+  ctx.globalAlpha = 1;
+}
+
+let frames = 0;
+function animate() {
+  if (frames < 180) tick();
+  frames += 1;
+  draw();
+  if (frames < 180) requestAnimationFrame(animate);
+}
+animate();
+
+canvas.addEventListener("click", (event) => {
+  const rect = canvas.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  let best = null;
+  let bestDist = 14;
+  nodes.forEach((node) => {
+    const dist = Math.hypot(node.x - x, node.y - y);
+    if (dist < bestDist) { best = node; bestDist = dist; }
+  });
+  if (best) select(best);
+});
+
+function select(node) {
+  selected = node;
+  const outgoing = edges.filter((edge) => edge.source === node.id);
+  const incoming = edges.filter((edge) => edge.target === node.id);
+  const detail = document.getElementById("detail");
+  detail.textContent = "";
+  add(detail, "h2", node.name);
+  add(detail, "p", ["Source: " + (node.file || "resolved") + (node.line ? " L" + node.line : ""), "Community: " + node.community_label, "Degree: " + node.degree, "Kind: " + node.kind].join("\n")).style.whiteSpace = "pre-wrap";
+  add(detail, "h3", "Connections (" + (outgoing.length + incoming.length) + ")");
+  outgoing.forEach((edge) => add(detail, "p", "→ " + byId[edge.target].name + " [" + edge.relation + "] [" + edge.confidence + "]"));
+  incoming.forEach((edge) => add(detail, "p", "← " + byId[edge.source].name + " [" + edge.relation + "] [" + edge.confidence + "]"));
+  const related = data.paths.filter((path) => path.node_ids.includes(node.id));
+  if (related.length) add(detail, "h3", "Paths through here");
+  related.forEach((path) => {
+    const button = document.createElement("button");
+    button.className = "path";
+    button.textContent = path.band + " " + path.score + " · " + path.confidence;
+    button.addEventListener("click", () => {
+      activePath = path;
+      pathSelect.value = String(data.paths.indexOf(path));
+      explainPath(path);
+      draw();
+    });
+    detail.appendChild(button);
+  });
+  draw();
+}
+
+function explainPath(path) {
+  const detail = document.getElementById("detail");
+  detail.textContent = "";
+  add(detail, "h2", path.band + " " + path.score);
+  add(detail, "p", path.narrative);
+  add(detail, "p", "Confidence " + path.confidence + " (weakest hop).");
+  path.edges.forEach((edge) => {
+    const from = byId[edge.source] ? byId[edge.source].name : edge.source;
+    const to = byId[edge.target] ? byId[edge.target].name : edge.target;
+    add(detail, "p", from + " --" + edge.kind + "--> " + to + " [" + edge.confidence + "]");
+  });
+}
+
+function add(parent, tag, text) {
+  const el = document.createElement(tag);
+  el.textContent = text;
+  parent.appendChild(el);
+  return el;
+}
+</script>
+</body>
+</html>
