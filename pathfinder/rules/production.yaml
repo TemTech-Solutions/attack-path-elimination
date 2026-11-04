@@ -1,0 +1,11 @@
+name: ProductionReach
+summary: Untrusted entry to a production workload.
+start:
+  - INTERNET
+target:
+  - PRODUCTION
+severity: high
+frameworks:
+  - OWASP CI/CD Top 10
+  - OWASP Kubernetes Top 10
+  - PASTA

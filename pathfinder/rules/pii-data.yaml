@@ -1,0 +1,13 @@
+name: PiiData
+summary: Public endpoint to a datastore that looks like personal data.
+start:
+  - PUBLIC_ENDPOINT
+target:
+  - PII_DATABASE
+conditions:
+  - user_input_reachable
+severity: critical
+frameworks:
+  - OWASP Top 10
+  - OWASP ASVS
+  - LINDDUN

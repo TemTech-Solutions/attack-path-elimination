@@ -1,0 +1,15 @@
+name: UnprotectedAdminPath
+summary: Internet to an admin function with no MFA and no authorization check.
+start:
+  - INTERNET
+target:
+  - ADMIN_FUNCTION
+must_not_have:
+  - MFA
+  - AUTHORIZATION_CHECK
+severity: critical
+frameworks:
+  - OWASP API Security Top 10
+  - OWASP ASVS
+  - STRIDE
+  - Trike

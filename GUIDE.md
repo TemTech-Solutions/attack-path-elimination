@@ -181,7 +181,34 @@ Point a GitHub webhook at `POST /api/webhooks/github` and set the same secret. T
 
 GitLab uses `GITLAB_WEBHOOK_SECRET` and the header `X-Gitlab-Token`, posted to `/api/webhooks/gitlab`.
 
-## 9. Optional: Neo4j
+## 9. Ask whether a specific objective is reachable
+
+The composed report answers "what chains does this catalog already know?" A hypothesis answers "can an attacker reach the objective I care about?"
+
+From a clone of [TemTech-Solutions/attack-path-elimination](https://github.com/TemTech-Solutions/attack-path-elimination):
+
+```powershell
+python -m pathfinder find-path path\to\repository-to-scan --from public-endpoint --to pii-database
+python -m pathfinder find-path path\to\repository-to-scan --from application --to iam-admin
+python -m pathfinder find-path path\to\repository-to-scan --from internet --to secret
+python -m pathfinder hunt path\to\repository-to-scan credentials
+python -m pathfinder hunt path\to\repository-to-scan ransomware
+python -m pathfinder simulate path\to\repository-to-scan rules\custom\payment-fraud.yaml
+python -m pathfinder ask path\to\repository-to-scan "Show me paths where a public API could reach financial records."
+python -m pathfinder query path\to\repository-to-scan "PUBLIC_ENDPOINT -[*..12]-> SECRET"
+```
+
+`python apep.py` accepts the same subcommands. `python -m pathfinder hunts` lists the templates. `python -m pathfinder frameworks` lists the models applied to every scan.
+
+Shipped templates cover credential theft, secret exposure, AWS privilege escalation, privilege escalation into an admin function, lateral movement into a datastore, ransomware blast radius, PCI data, personal data, payment fraud, an unprotected admin path, production, source code, and OWASP web, API, and LLM objectives.
+
+`python -m pathfinder init` writes `rules/custom/example.yaml`. The file names the entry, the targets, conditions such as `no_authz_check` and `user_input_reachable`, and controls that must be absent (`MFA`, `AUTHORIZATION_CHECK`). `simulate` runs that file. Put more files under `rules/` in the repository being scanned and the next analyze picks them up.
+
+The output is the walk, the risk band, the missing controls, and the edge to delete or constrain. A reviewer panel then tags the same walk. The panel uses OWASP Top 10, API Security Top 10, ASVS, CI/CD Top 10, Kubernetes Top 10, Docker Top 10, Serverless Top 10, LLM Top 10, and Subtractive Hardening, together with STRIDE, DREAD, PASTA, LINDDUN, OCTAVE, Trike, VAST, attack trees, MITRE ATT&CK tactic names, and the Lockheed Martin Kill Chain. The reviewers look for small boundary mistakes: a raw body forwarded into a privileged call, a role comparison that treats every non-guest as allowed, a secret or wildcard policy reachable from a public entry, and a file that authenticates one route and leaves the next open.
+
+The question command maps the sentence onto a start and a target on this machine. It does not send the repository to a model.
+
+## 10. Optional: Neo4j
 
 `graph.cypher` in the local output creates one node per component and the edges the analyzer could prove (`CALLS`, `ROUTES_TO`, `READS`, `FLOWS_TO`, `USES_SECRET`, `DEPLOYS`, `INVOKES`). Review the file, then load it into a database you control. The HTML report does not require Neo4j.
 

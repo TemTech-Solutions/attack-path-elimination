@@ -1,0 +1,13 @@
+name: RansomwareBlastRadius
+summary: Public entry through a privileged workload to backup or storage.
+start:
+  - INTERNET
+through:
+  - PRIVILEGED
+target:
+  - STORAGE
+severity: critical
+frameworks:
+  - Lockheed Martin Kill Chain
+  - OCTAVE
+  - OWASP Kubernetes Top 10

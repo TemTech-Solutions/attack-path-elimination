@@ -1,0 +1,10 @@
+name: OwaspApi
+summary: Public API to an admin function.
+start:
+  - PUBLIC_API
+target:
+  - ADMIN_FUNCTION
+severity: high
+frameworks:
+  - OWASP API Security Top 10
+  - OWASP ASVS

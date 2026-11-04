@@ -73,6 +73,89 @@ def test_parallel_paths_and_scorecard(payment_repo: Path):
     assert any(item["rule"] == "U07" for item in result["findings"])
 
 
+def test_objective_search_reaches_the_chosen_target(payment_repo: Path):
+    from pathfinder.cli import main
+    from pathfinder.query import search, translate
+
+    result = analyze(payment_repo)
+    secret = search(result, {"name": "secrets", "start": ["public-endpoint"], "target": ["secret"]})
+    assert secret["found"] >= 1
+    assert secret["paths"][0]["band"] in {"Critical", "High"}
+    assert any("AUTHORIZATION_CHECK" in path["missing_controls"] for path in secret["paths"])
+    pii = search(result, {"name": "pii", "start": ["public-endpoint"], "target": ["pii-database"], "conditions": ["user_input_reachable"]})
+    assert pii["found"] >= 1
+    financial = search(result, translate("Show me paths where a public API could reach financial records."))
+    assert financial["target"] == ["FINANCIAL_DATA"]
+    assert financial["found"] >= 1
+    admin = search(result, {"name": "iam", "start": ["application"], "target": ["iam-admin"]})
+    assert admin["found"] >= 1
+    assert result["scorecard"]["objectives"] >= 1
+    assert any(item["name"] == "Slight misses" and item["found"] for item in result["hypotheses"])
+    assert "Objectives an attacker can reach" in pr_comment(result)
+    code = main(["find-path", str(payment_repo), "--from", "public-endpoint", "--to", "secret"])
+    assert code == 0
+
+
+def test_missing_control_rejects_an_authorized_walk():
+    from pathfinder.query import search
+
+    result = {
+        "nodes": [
+            {
+                "id": "e",
+                "kind": "endpoint",
+                "name": "POST /admin/refund",
+                "receives": "POST /admin/refund",
+                "file": "a.py",
+                "line": 1,
+                "properties": {"auth": False, "method": "POST", "path": "/admin/refund"},
+                "component": "POST /admin/refund",
+            },
+            {
+                "id": "s",
+                "kind": "secret",
+                "name": "AWS_SECRET_KEY",
+                "file": "a.py",
+                "line": 4,
+                "properties": {},
+                "component": "AWS_SECRET_KEY",
+            },
+        ],
+        "edges": [
+            {
+                "source": "e",
+                "target": "s",
+                "kind": "USES_SECRET",
+                "file": "a.py",
+                "line": 4,
+                "evidence": "AWS_SECRET_KEY",
+                "confidence": "EXTRACTED",
+            }
+        ],
+        "observations": [],
+        "paths": [],
+        "scorecard": {},
+        "root": ".",
+    }
+    open_walk = search(
+        result,
+        {
+            "name": "open",
+            "start": ["user"],
+            "target": ["secret"],
+            "must_not_have": ["AUTHORIZATION_CHECK", "MFA"],
+        },
+    )
+    assert open_walk["found"] == 1
+    assert "MFA" in open_walk["paths"][0]["missing_controls"]
+    result["nodes"][0]["properties"]["auth"] = True
+    closed = search(
+        result,
+        {"name": "closed", "start": ["user"], "target": ["secret"], "must_not_have": ["AUTHORIZATION_CHECK"]},
+    )
+    assert closed["found"] == 0
+
+
 def test_html_and_comment_carry_the_chain(payment_repo: Path):
     result = analyze(payment_repo)
     html = render_html(result)

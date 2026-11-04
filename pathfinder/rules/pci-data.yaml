@@ -1,0 +1,11 @@
+name: PciData
+summary: Public entry to payment-card data.
+start:
+  - PUBLIC_ENDPOINT
+target:
+  - PCI_DATA
+severity: critical
+frameworks:
+  - OWASP Top 10
+  - LINDDUN
+  - OCTAVE

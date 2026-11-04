@@ -117,7 +117,10 @@ def analyze(target: Path) -> dict:
     connect_runtime(model)
     _materialize_polyglot_sql(model)
     paths = build_paths(model)
-    return _package(model, paths)
+    packaged = _package(model, paths)
+    from pathfinder.query import attach_search
+
+    return attach_search(packaged)
 
 
 def _package(model: RepoModel, paths: list[dict]) -> dict:

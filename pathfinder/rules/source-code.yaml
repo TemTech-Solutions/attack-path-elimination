@@ -1,0 +1,10 @@
+name: SourceCodeReach
+summary: Untrusted trigger to the build or the repository checkout.
+start:
+  - INTERNET
+target:
+  - SOURCE_CODE
+severity: high
+frameworks:
+  - OWASP CI/CD Top 10
+  - VAST

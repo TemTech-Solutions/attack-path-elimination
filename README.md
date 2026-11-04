@@ -35,6 +35,40 @@ python -m pathfinder serve
 
 `GET /` serves the report after a local analyze. `POST /api/analyze` accepts a local path under the working directory, or an `https://github.com/...`, GitLab, or Azure DevOps URL. Webhooks stay closed until `GITHUB_WEBHOOK_SECRET` or `GITLAB_WEBHOOK_SECRET` is set. Comments are posted to GitHub only when `PATHFINDER_POST_COMMENTS=1` and `GITHUB_TOKEN` are both set.
 
+## Ask whether a specific objective is reachable
+
+The composed report lists the chains the catalog already knows. A hypothesis asks whether an attacker can get from one place to another, under conditions you set. The walk uses edges the analyzer proved. Each result names the missing control and the edge to delete. It does not describe how to carry the walk out.
+
+```powershell
+python -m pathfinder find-path path\to\repository-to-scan --from public-endpoint --to pii-database
+python -m pathfinder find-path path\to\repository-to-scan --from application --to iam-admin
+python -m pathfinder find-path path\to\repository-to-scan --from internet --to secret
+python -m pathfinder hunt path\to\repository-to-scan credentials
+python -m pathfinder hunt path\to\repository-to-scan privilege-escalation
+python -m pathfinder simulate path\to\repository-to-scan rules\custom\payment-fraud.yaml
+python -m pathfinder ask path\to\repository-to-scan "Show me paths where a public API could reach financial records."
+python -m pathfinder query path\to\repository-to-scan "PUBLIC_ENDPOINT -[*..12]-> SECRET"
+```
+
+`python apep.py` is the same command. `hunt` with no name runs the shipped templates. `init` writes `rules/custom/example.yaml`. A repository can keep its own hypotheses in `rules/`.
+
+```yaml
+name: Payment Fraud
+entry:
+  - PUBLIC_ENDPOINT
+targets:
+  - PAYMENT_DB
+conditions:
+  - no_authz_check
+  - user_input_reachable
+must_not_have:
+  - MFA
+  - AUTHORIZATION_CHECK
+severity: critical
+```
+
+Every scan runs those templates and a panel of reviewers. The reviewers map walks onto OWASP Top 10, API Security Top 10, ASVS, CI/CD, Kubernetes, Docker, Serverless, LLM, and Subtractive Hardening, plus STRIDE, DREAD, PASTA, LINDDUN, OCTAVE, Trike, VAST, attack trees, MITRE ATT&CK tactics, and the Lockheed Martin Kill Chain. MITRE is recorded as a tactic name only. `graph.json` includes `hypotheses`, `agent_reviews`, and `frameworks`.
+
 ## What the graph contains
 
 Python is parsed with the standard AST, including cross-file calls. Java, JavaScript/TypeScript, Go, C#, and PHP contribute routes and sinks from source patterns. Workflows, Dockerfiles, Kubernetes manifests, Terraform, CloudFormation, SQL, dependency manifests, and OpenAPI contribute the surrounding edges: `CALLS`, `ROUTES_TO`, `READS`, `FLOWS_TO`, `USES_SECRET`, `DEPLOYS`, `INVOKES`, `TRUSTS`. When a supply-chain path and an application cloud path both exist, the report also states them as one stack.
@@ -48,5 +82,7 @@ That is structural composition, not a whole-program compiler. Ambiguous calls ar
 - `pathfinder/analyze.py` walks the repository
 - `pathfinder/languages.py` and `pathfinder/platform.py` build components
 - `pathfinder/chains.py` composes stories
+- `pathfinder/query.py` answers a hypothesis against that graph
+- `pathfinder/rules/` holds the shipped hunt templates
 - `pathfinder/scoring.py` ranks them
 - `pathfinder/templates/report.html` is the external view

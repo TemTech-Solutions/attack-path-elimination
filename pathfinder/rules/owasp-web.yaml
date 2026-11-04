@@ -1,0 +1,12 @@
+name: OwaspWeb
+summary: Public entry to a datastore reached by caller-controlled data.
+start:
+  - PUBLIC_ENDPOINT
+target:
+  - DATABASE
+conditions:
+  - user_input_reachable
+severity: high
+frameworks:
+  - OWASP Top 10
+  - OWASP ASVS

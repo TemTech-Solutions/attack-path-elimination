@@ -1,0 +1,10 @@
+name: OwaspLlm
+summary: Application entry to an overprivileged model tool or executable model load.
+start:
+  - APPLICATION
+target:
+  - AI_TOOL
+severity: high
+frameworks:
+  - OWASP LLM Top 10
+  - OWASP Subtractive Hardening

@@ -1,0 +1,11 @@
+name: SupplyChain
+summary: Untrusted pipeline trigger to production.
+start:
+  - UNTRUSTED_TRIGGER
+target:
+  - PRODUCTION
+severity: critical
+frameworks:
+  - OWASP CI/CD Top 10
+  - OWASP Top 10
+  - Lockheed Martin Kill Chain

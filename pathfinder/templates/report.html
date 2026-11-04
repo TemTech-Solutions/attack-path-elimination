@@ -103,6 +103,7 @@
   <div class="muted" id="subtitle"></div>
   <div class="stats" id="stats"></div>
   <div class="banner" id="banner"></div>
+  <div id="objectives"></div>
 </header>
 <main>
   <div style="display:flex; gap:8px; margin-bottom:12px;">
@@ -143,6 +144,7 @@ const stats = [
   ["Cloud risk", card.cloud_risk],
   ["Supply chain risk", card.supply_chain_risk]
 ];
+if (card.objectives) stats.push(["Objectives reached", card.objectives]);
 const statsEl = document.getElementById("stats");
 stats.forEach(([label, value]) => {
   const el = document.createElement("div");
@@ -152,6 +154,22 @@ stats.forEach(([label, value]) => {
   el.appendChild(b);
   el.appendChild(document.createTextNode(label));
   statsEl.appendChild(el);
+});
+
+const objectives = document.getElementById("objectives");
+(data.hypotheses || []).filter((item) => item.found).slice(0, 6).forEach((item) => {
+  const block = document.createElement("div");
+  block.className = "banner";
+  const title = document.createElement("b");
+  title.textContent = item.name + " · " + item.found + " path" + (item.found === 1 ? "" : "s");
+  block.appendChild(title);
+  const walk = document.createElement("div");
+  walk.textContent = (item.paths[0].labels || []).join(" → ");
+  block.appendChild(walk);
+  const risk = document.createElement("div");
+  risk.textContent = "Risk: " + item.paths[0].band + (item.question ? " · " + item.question : "");
+  block.appendChild(risk);
+  objectives.appendChild(block);
 });
 
 let selected = 0;

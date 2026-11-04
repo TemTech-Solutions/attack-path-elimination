@@ -1,0 +1,14 @@
+name: AWSPrivilegeEscalation
+summary: Application code to an administrative identity policy.
+start:
+  - APPLICATION
+through:
+  - IAM_ROLE
+target:
+  - ADMIN_POLICY
+severity: critical
+frameworks:
+  - OWASP Top 10
+  - OWASP Serverless Top 10
+  - STRIDE
+  - MITRE ATT&CK

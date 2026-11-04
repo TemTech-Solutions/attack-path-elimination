@@ -1,0 +1,17 @@
+name: PrivilegeEscalation
+summary: A user-facing entry to an admin function.
+start:
+  - USER
+through:
+  - APPLICATION
+target:
+  - ADMIN_FUNCTION
+must_not_have:
+  - AUTHORIZATION_CHECK
+  - MFA
+severity: critical
+frameworks:
+  - OWASP Top 10
+  - OWASP API Security Top 10
+  - STRIDE
+  - Trike

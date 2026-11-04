@@ -36,6 +36,14 @@ def pr_comment(result: dict) -> str:
         f"Path erasure rate {per.get('rate', 0)} = {per.get('erased', 0)} erased / {per.get('eligible', 0)} eligible."
     )
     lines.append("")
+    reached = [item for item in result.get("hypotheses") or [] if item.get("found")]
+    if reached:
+        lines.append("### Objectives an attacker can reach")
+        lines.append("")
+        for item in reached[:6]:
+            top = item["paths"][0]
+            lines.append(f"- {item['name']}: {item['found']} path(s), {top['band']} — {' → '.join(top['labels'][:6])}")
+        lines.append("")
     lines.append("Static review only. The change to make is deletion or constraint of the path, not a new alert.")
     return "\n".join(lines)
 

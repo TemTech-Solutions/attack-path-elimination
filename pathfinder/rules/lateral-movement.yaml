@@ -1,0 +1,13 @@
+name: LateralMovement
+summary: A service hop that reaches a datastore.
+start:
+  - SERVICE
+through:
+  - SERVICE
+target:
+  - DATABASE
+severity: high
+frameworks:
+  - MITRE ATT&CK
+  - VAST
+  - Attack trees

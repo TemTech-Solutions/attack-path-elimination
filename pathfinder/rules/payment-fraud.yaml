@@ -1,0 +1,15 @@
+name: PaymentFraud
+summary: Public payment entry to payment data without an authorization check.
+start:
+  - PUBLIC_ENDPOINT
+target:
+  - PAYMENT_DB
+conditions:
+  - no_authz_check
+  - user_input_reachable
+severity: critical
+frameworks:
+  - PASTA
+  - OWASP API Security Top 10
+  - STRIDE
+  - DREAD
