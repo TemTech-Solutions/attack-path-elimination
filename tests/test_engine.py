@@ -185,7 +185,17 @@ def test_html_and_comment_carry_the_chain(payment_repo: Path):
     assert "Threats to eliminate" in threat
     assert "STRIDE" in threat
     assert "DREAD" in threat
+    assert "PASTA" in threat
     assert recommendation in threat
+    from pathfinder.threatmodel import build_threat_model
+    modeled = build_threat_model(result)
+    criticals = [item for item in modeled["threats"] if item["band"] == "Critical"]
+    assert criticals
+    assert criticals[0]["why"]
+    assert criticals[0]["effect"].startswith("Effect:")
+    assert criticals[0]["recommendation"]
+    assert criticals[0]["reachability"]
+    assert criticals[0]["exploitability_level"]
     assert "threat-model.html" in html
 
 

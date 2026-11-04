@@ -23,35 +23,35 @@
   header, main { padding: 20px 24px; }
   header { border-bottom: 1px solid var(--line); }
   h1 { margin: 0 0 6px; font-size: 22px; }
-  h2 { margin: 22px 0 8px; font-size: 18px; }
+  h2 { margin: 0 0 8px; font-size: 18px; }
   a { color: var(--accent); }
   .muted { color: var(--muted); }
-  .stats, .filters, .boundaries { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
-  .stat, .card, .asset {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 10px 12px;
-  }
-  .stat { min-width: 140px; }
-  .stat b { display: block; font-size: 20px; }
-  button.filter {
+  .lenses, .groups { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  button.lens, button.group, button.quiet {
     background: #10192d;
     color: var(--text);
     border: 1px solid var(--line);
     border-radius: 999px;
-    padding: 6px 10px;
+    padding: 6px 12px;
     cursor: pointer;
   }
-  button.filter.active { border-color: var(--accent); color: var(--accent); }
-  .card { margin: 0 0 12px; }
-  .card h3 { margin: 0 0 6px; font-size: 16px; }
+  button.lens.active, button.group.active { border-color: var(--accent); color: var(--accent); }
+  button.quiet { border-radius: 8px; color: var(--muted); }
+  #panel { margin-top: 18px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    margin: 0 0 10px;
+  }
+  .card h3 { margin: 0 0 8px; font-size: 16px; cursor: pointer; }
+  .card p { margin: 4px 0; }
   .Critical { color: var(--critical); }
   .High { color: var(--high); }
   .Medium { color: var(--medium); }
   .Low { color: var(--low); }
-  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-  .tag { border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--muted); font-size: 12px; }
+  .detail { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
   ul { margin: 6px 0; padding-left: 18px; }
 </style>
 </head>
@@ -59,123 +59,156 @@
 <header>
   <h1 id="title">Threat model</h1>
   <p class="muted"><a href="report.html">Ranked paths</a> · <a href="graph.html">Graph</a></p>
-  <p class="muted">Each threat is a walk the files already contain. The change to make is deletion or constraint of that edge.</p>
-  <div class="stats" id="stats"></div>
-  <div class="boundaries" id="boundaries"></div>
+  <p class="muted">Threats to eliminate. Choose a lens, then a group. The page shows only that group.</p>
+  <div class="lenses" id="lenses"></div>
+  <div class="groups" id="groups"></div>
 </header>
 <main>
-  <h2>Frameworks</h2>
-  <div class="filters" id="filters"></div>
-  <h2>Assets in scope</h2>
-  <div class="boundaries" id="assets"></div>
-  <h2>Threats to eliminate</h2>
-  <div id="threats"></div>
-  <h2>Review notes</h2>
-  <div id="notes"></div>
+  <div id="panel"><p class="muted">Select a group. Critical, for example, lists only the critical findings: why each one is first, the effect, and the next change.</p></div>
 </main>
 <script id="data" type="application/json">__PAYLOAD__</script>
 <script>
 const model = JSON.parse(document.getElementById("data").textContent);
 document.getElementById("title").textContent = model.repository + " threat model";
-const stats = document.getElementById("stats");
-[
-  ["Threats", model.summary.threats],
-  ["Critical", model.summary.critical],
-  ["Frameworks matched", model.summary.frameworks],
-  ["Assets", model.summary.assets]
-].forEach(([label, value]) => {
-  const el = document.createElement("div");
-  el.className = "stat";
-  const b = document.createElement("b");
-  b.textContent = value;
-  el.appendChild(b);
-  el.appendChild(document.createTextNode(label));
-  stats.appendChild(el);
-});
-const boundaries = document.getElementById("boundaries");
-model.boundaries.forEach((item) => {
-  const el = document.createElement("div");
-  el.className = "stat";
-  const b = document.createElement("b");
-  b.textContent = item.count;
-  el.appendChild(b);
-  el.appendChild(document.createTextNode(item.name));
-  boundaries.appendChild(el);
-});
-const assets = document.getElementById("assets");
-model.assets.forEach((asset) => {
-  const el = document.createElement("div");
-  el.className = "asset";
-  const place = asset.file ? asset.file + (asset.line ? ":" + asset.line : "") : asset.kind;
-  el.textContent = asset.name + " · " + asset.kind + " · " + place;
-  assets.appendChild(el);
-});
-let active = "All";
-const filters = document.getElementById("filters");
-function chip(label, count) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "filter" + (label === active ? " active" : "");
-  button.textContent = count === undefined ? label : label + " (" + count + ")";
-  button.addEventListener("click", () => {
-    active = label;
-    drawFilters();
-    drawThreats();
-  });
-  filters.appendChild(button);
+
+const LENSES = [
+  { id: "severity", name: "Severity", order: ["Critical", "High", "Medium", "Low", "Unscored"] },
+  { id: "reachability", name: "Reachability", order: ["Reachable from an entry", "Connected walk", "Local signal"] },
+  { id: "exploitability", name: "Exploitability", order: ["High", "Moderate", "Lower", "Not scored"] },
+  { id: "stride", name: "STRIDE", order: ["Spoofing", "Tampering", "Repudiation", "Information disclosure", "Denial of service", "Elevation of privilege", "Not classified"], multi: true },
+  { id: "dread", name: "DREAD", order: ["Damage", "Reproducibility", "Exploitability", "Affected users", "Discoverability", "Not scored"], multi: true },
+  { id: "pasta", name: "PASTA", order: ["Stage 4 · Threat analysis", "Stage 5 · Weakness analysis", "Stage 6 · Attack modeling", "Stage 7 · Risk and impact"] }
+];
+
+let lens = LENSES[0];
+let group = "";
+let openId = "";
+
+function valuesOf(threat) {
+  if (lens.id === "severity") return [threat.severity || "Unscored"];
+  if (lens.id === "reachability") return [threat.reachability || "Local signal"];
+  if (lens.id === "exploitability") return [threat.exploitability_level || "Not scored"];
+  if (lens.id === "stride") return threat.stride && threat.stride.length ? threat.stride : ["Not classified"];
+  if (lens.id === "dread") return threat.dread_groups && threat.dread_groups.length ? threat.dread_groups : ["Not scored"];
+  return [threat.pasta || "Stage 7 · Risk and impact"];
 }
-function drawFilters() {
-  filters.textContent = "";
-  chip("All", model.threats.length);
-  model.frameworks.filter((item) => item.matched).forEach((item) => chip(item.name, item.count));
+
+function members(label) {
+  return model.threats.filter((threat) => valuesOf(threat).includes(label));
 }
-function drawThreats() {
-  const root = document.getElementById("threats");
+
+function drawLenses() {
+  const root = document.getElementById("lenses");
   root.textContent = "";
-  const threats = model.threats.filter((threat) => active === "All" || threat.frameworks.includes(active));
-  if (!threats.length) {
-    const empty = document.createElement("p");
-    empty.className = "muted";
-    empty.textContent = "No threat in this framework for this snapshot.";
-    root.appendChild(empty);
+  LENSES.forEach((item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "lens" + (item.id === lens.id ? " active" : "");
+    button.textContent = item.name;
+    button.addEventListener("click", () => {
+      lens = item;
+      group = "";
+      openId = "";
+      drawLenses();
+      drawGroups();
+      drawPanel();
+    });
+    root.appendChild(button);
+  });
+  const scope = document.createElement("button");
+  scope.type = "button";
+  scope.className = "quiet";
+  scope.textContent = "Scope";
+  scope.addEventListener("click", () => { group = "__scope"; openId = ""; drawGroups(); drawPanel(); });
+  root.appendChild(scope);
+  const notes = document.createElement("button");
+  notes.type = "button";
+  notes.className = "quiet";
+  notes.textContent = "Review notes";
+  notes.addEventListener("click", () => { group = "__notes"; openId = ""; drawGroups(); drawPanel(); });
+  root.appendChild(notes);
+}
+
+function drawGroups() {
+  const root = document.getElementById("groups");
+  root.textContent = "";
+  if (group === "__scope" || group === "__notes") return;
+  const present = new Map();
+  model.threats.forEach((threat) => {
+    valuesOf(threat).forEach((label) => present.set(label, (present.get(label) || 0) + 1));
+  });
+  const labels = lens.order.filter((label) => present.has(label));
+  present.forEach((_count, label) => { if (!labels.includes(label)) labels.push(label); });
+  labels.forEach((label) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "group" + (label === group ? " active" : "");
+    button.textContent = label + " (" + present.get(label) + ")";
+    button.addEventListener("click", () => {
+      group = label;
+      openId = "";
+      drawGroups();
+      drawPanel();
+    });
+    root.appendChild(button);
+  });
+}
+
+function drawPanel() {
+  const root = document.getElementById("panel");
+  root.textContent = "";
+  if (group === "__scope") return drawScope(root);
+  if (group === "__notes") return drawNotes(root);
+  if (!group) {
+    add(root, "p", "Select a group. A click lists only those findings, with why each is prioritized, the effect, and the next change.").className = "muted";
     return;
   }
-  threats.forEach((threat) => root.appendChild(card(threat)));
+  const items = members(group).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  add(root, "h2", group + " · " + items.length);
+  const reachable = items.filter((item) => item.reachability !== "Local signal").length;
+  const high = items.filter((item) => item.exploitability_level === "High").length;
+  add(root, "p", groupReason(items.length, reachable, high)).className = "muted";
+  items.forEach((threat, index) => root.appendChild(card(threat, index)));
 }
-function card(threat) {
+
+function groupReason(count, reachable, high) {
+  const noun = count === 1 ? "finding" : "findings";
+  return count + " " + noun + " in " + lens.name + ". " + reachable + " are reachable walks. " + high + " have high exploitability. The rows below are only this group.";
+}
+
+function card(threat, index) {
+  const id = String(index) + "|" + threat.name + "|" + threat.score;
   const el = document.createElement("article");
   el.className = "card";
   const title = document.createElement("h3");
   const band = document.createElement("span");
-  band.className = threat.band;
-  band.textContent = threat.band + " " + threat.score;
+  band.className = threat.band || "";
+  band.textContent = (threat.band || "Unscored") + " " + threat.score;
   title.appendChild(band);
   title.appendChild(document.createTextNode(" · " + threat.name));
+  title.addEventListener("click", () => {
+    openId = openId === id ? "" : id;
+    drawPanel();
+  });
   el.appendChild(title);
-  if (threat.question) add(el, "p", threat.question);
-  add(el, "p", threat.narrative);
-  const tags = document.createElement("div");
-  tags.className = "tags";
-  threat.frameworks.forEach((name) => {
-    const tag = document.createElement("span");
-    tag.className = "tag";
-    tag.textContent = name;
-    tags.appendChild(tag);
-  });
-  threat.stride.forEach((name) => {
-    const tag = document.createElement("span");
-    tag.className = "tag";
-    tag.textContent = "STRIDE · " + name;
-    tags.appendChild(tag);
-  });
-  el.appendChild(tags);
+  add(el, "p", "Why this is first: " + (threat.why || ""));
+  add(el, "p", threat.effect || "");
+  if (threat.recommendation) add(el, "p", "Next step: " + threat.recommendation);
+  if (openId === id) el.appendChild(detail(threat));
+  return el;
+}
+
+function detail(threat) {
+  const box = document.createElement("div");
+  box.className = "detail";
+  add(box, "p", threat.narrative || "");
   const dread = threat.dread || {};
-  if (dread.exposure !== undefined && dread.exposure !== null) {
-    add(el, "p", "DREAD factors · exposure " + dread.exposure + " · privilege " + dread.privilege + " · asset " + dread.asset + " · exploitability " + dread.exploitability);
-  }
-  if ((threat.missing_controls || []).length) add(el, "p", "Missing controls: " + threat.missing_controls.join(", "));
+  add(box, "p", "DREAD · damage " + show(dread.asset) + " · reproducibility " + (threat.reachability === "Local signal" ? "local" : "walk is in the files") + " · exploitability " + show(dread.exploitability) + " · affected users " + show(dread.exposure) + " · discoverability " + (threat.reachability === "Reachable from an entry" ? "entry is exposed" : "not an exposed entry"));
+  if ((threat.stride || []).length) add(box, "p", "STRIDE · " + threat.stride.join(", "));
+  if (threat.pasta) add(box, "p", "PASTA · " + threat.pasta);
+  if ((threat.missing_controls || []).length) add(box, "p", "Missing controls: " + threat.missing_controls.join(", "));
   if ((threat.hops || []).length) {
-    add(el, "p", "Reachable walk");
+    add(box, "p", "Walk");
     const list = document.createElement("ul");
     threat.hops.forEach((hop) => {
       const li = document.createElement("li");
@@ -183,61 +216,62 @@ function card(threat) {
       li.textContent = [hop.label, hop.rule, place, hop.evidence].filter(Boolean).join(" · ");
       list.appendChild(li);
     });
-    el.appendChild(list);
+    box.appendChild(list);
   }
-  if ((threat.notes || []).length) {
-    add(el, "p", "Review");
-    const list = document.createElement("ul");
-    threat.notes.forEach((text) => {
-      const li = document.createElement("li");
-      li.textContent = text;
-      list.appendChild(li);
-    });
-    el.appendChild(list);
-  }
-  if ((threat.remove || []).length) {
-    add(el, "p", "Next step");
-    add(el, "p", threat.remove[0]);
-    add(el, "p", "What to remove");
+  if ((threat.remove || []).length > 1) {
+    add(box, "p", "What to remove");
     const list = document.createElement("ul");
     threat.remove.forEach((text) => {
       const li = document.createElement("li");
       li.textContent = text;
       list.appendChild(li);
     });
-    el.appendChild(list);
+    box.appendChild(list);
   }
-  return el;
+  return box;
 }
-function drawNotes() {
-  const root = document.getElementById("notes");
+
+function drawScope(root) {
+  add(root, "h2", "Scope");
+  add(root, "p", "Trust boundaries and assets in this snapshot.").className = "muted";
+  model.boundaries.forEach((item) => add(root, "p", item.name + " · " + item.count + " components"));
+  model.assets.forEach((asset) => {
+    const place = asset.file ? asset.file + (asset.line ? ":" + asset.line : "") : asset.kind;
+    add(root, "p", asset.name + " · " + asset.kind + " · " + place);
+  });
+}
+
+function drawNotes(root) {
+  add(root, "h2", "Review notes");
   const seen = new Set();
-  model.notes.forEach((note) => {
+  (model.notes || []).forEach((note) => {
     const key = note.framework + "|" + note.detail;
     if (seen.has(key)) return;
     seen.add(key);
-    const el = document.createElement("article");
-    el.className = "card";
-    add(el, "p", note.framework + (note.agent ? " · " + note.agent : ""));
-    add(el, "p", note.detail);
-    root.appendChild(el);
+    const card = document.createElement("article");
+    card.className = "card";
+    add(card, "p", note.framework || "Review");
+    add(card, "p", note.detail);
+    root.appendChild(card);
   });
-  if (!root.childElementCount) {
-    const empty = document.createElement("p");
-    empty.className = "muted";
-    empty.textContent = "No extra review note in this snapshot.";
-    root.appendChild(empty);
-  }
+  if (!root.querySelector(".card")) add(root, "p", "No extra review note in this snapshot.").className = "muted";
 }
+
+function show(value) {
+  if (value === undefined || value === null || value === "") return "—";
+  return String(value);
+}
+
 function add(parent, tag, text) {
   const el = document.createElement(tag);
   el.textContent = text;
   parent.appendChild(el);
   return el;
 }
-drawFilters();
-drawThreats();
-drawNotes();
+
+drawLenses();
+drawGroups();
+drawPanel();
 </script>
 </body>
 </html>
