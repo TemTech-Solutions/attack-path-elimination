@@ -21,7 +21,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from pathfinder.analyze import analyze
-from pathfinder.report import pr_comment, render_html
+from pathfinder.report import pr_comment, render_html, render_threat_html
 
 ALLOWED_HOSTS = {"github.com", "gitlab.com", "dev.azure.com"}
 app = FastAPI(title="Attack path elimination", version="0.1.0")
@@ -133,6 +133,7 @@ def _remember(result: dict) -> None:
     report_dir = Path(os.environ.get("PATHFINDER_REPORT", "out"))
     report_dir.mkdir(parents=True, exist_ok=True)
     (report_dir / "report.html").write_text(render_html(result), encoding="utf-8")
+    (report_dir / "threat-model.html").write_text(render_threat_html(result), encoding="utf-8")
 
 
 def _resolve_target(target: str) -> Path:

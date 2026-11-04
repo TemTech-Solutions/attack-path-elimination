@@ -27,7 +27,8 @@ From a clone of [TemTech-Solutions/attack-path-elimination](https://github.com/T
 
 ```powershell
 cd attack-path-elimination
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 python -m pathfinder analyze path\to\repository-to-scan --out out\repository-to-scan
 python -m pathfinder comment path\to\repository-to-scan
 python -m pathfinder serve
@@ -71,16 +72,18 @@ Every scan runs those templates and a panel of reviewers. The reviewers map walk
 
 ## What the graph contains
 
-Python is parsed with the standard AST, including cross-file calls. Java, JavaScript/TypeScript, Go, C#, and PHP contribute routes and sinks from source patterns. Workflows, Dockerfiles, Kubernetes manifests, Terraform, CloudFormation, SQL, dependency manifests, and OpenAPI contribute the surrounding edges: `CALLS`, `ROUTES_TO`, `READS`, `FLOWS_TO`, `USES_SECRET`, `DEPLOYS`, `INVOKES`, `TRUSTS`. When a supply-chain path and an application cloud path both exist, the report also states them as one stack.
+Python is parsed with the standard AST, including cross-file calls. Java, JavaScript/TypeScript, Go, C#, and PHP contribute routes and sinks from source patterns. Every other program file is read by the same structural pass: routes, calls, queries, outbound requests, credentials, and the smaller signals around them. A local centroid model learns this repository's identifier shapes and blends them into the next scan of that environment. No source is sent off the machine. Workflows, Dockerfiles, Kubernetes manifests, Terraform, CloudFormation, SQL, dependency manifests, and OpenAPI contribute the surrounding edges: `CALLS`, `ROUTES_TO`, `READS`, `FLOWS_TO`, `USES_SECRET`, `DEPLOYS`, `INVOKES`, `TRUSTS`. When a supply-chain path and an application cloud path both exist, the report also states them as one stack.
 
-That is structural composition, not a whole-program compiler. Ambiguous calls are left unlinked rather than guessed. `graph.html` draws the same graph: communities as colors, `EXTRACTED` edges that were written in a file, and `INFERRED` edges the analyzer resolved. A path's confidence is its weakest hop. The idea matches a code knowledge graph such as [Graphify](https://github.com/Graphify-Labs/graphify). This project is not affiliated with Graphify Labs.
+That is structural composition, not a whole-program compiler. Ambiguous calls are left unlinked rather than guessed. `graph.html` draws the same graph. Select an issue and the clear path is laid out left to right, with the diagnosis, the file and line of each hop, and the next deletion or constraint. `EXTRACTED` edges were written in a file. `INFERRED` edges were resolved. A path's confidence is its weakest hop. The idea matches a code knowledge graph such as [Graphify](https://github.com/Graphify-Labs/graphify). This project is not affiliated with Graphify Labs.
 
 ## Layout
 
 - `action.yml` is the Action other repositories run
 - `install/github/attack-paths.yml` is the workflow those repositories commit
 - `pathfinder/analyze.py` walks the repository
-- `pathfinder/languages.py` and `pathfinder/platform.py` build components
+- `pathfinder/languages.py` and `pathfinder/platform.py` build components for the languages with a dedicated parser
+- `pathfinder/universal.py` reads every other program, then a second pass records smaller signals in all of them
+- `pathfinder/adapt.py` learns this repository's names locally and reuses them on the next scan
 - `pathfinder/chains.py` composes stories
 - `pathfinder/query.py` answers a hypothesis against that graph
 - `pathfinder/rules/` holds the shipped hunt templates

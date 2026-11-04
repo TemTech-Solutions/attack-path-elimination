@@ -5,6 +5,7 @@ import pytest
 from pathfinder.analyze import analyze
 from pathfinder.graphview import render_graph_html
 from pathfinder.report import pr_comment, render_html
+from pathfinder.threatmodel import render_threat_html
 from pathfinder.scoring import score_path
 
 @pytest.fixture
@@ -176,6 +177,16 @@ def test_html_and_comment_carry_the_chain(payment_repo: Path):
     assert cloud["confidence"] == "INFERRED"
     page = render_graph_html(result)
     assert "EXTRACTED" in page and "INFERRED" in page and "<canvas" in page
+    assert "Paths to eliminate" in page
+    assert "What to remove" in page
+    recommendation = next(text for path in result["paths"] if path.get("recommendations") for text in path["recommendations"])
+    assert recommendation in page
+    threat = render_threat_html(result)
+    assert "Threats to eliminate" in threat
+    assert "STRIDE" in threat
+    assert "DREAD" in threat
+    assert recommendation in threat
+    assert "threat-model.html" in html
 
 
 def test_other_languages_and_gitlab(tmp_path: Path):
@@ -246,16 +257,16 @@ def test_other_languages_and_gitlab(tmp_path: Path):
 
 
 def test_install_hook_writes_into_the_other_repo(tmp_path: Path):
-    from pathfinder.install import InstallError, install
+    from pathfinder.install import PUBLIC_REF, InstallError, install
 
     destination = install(tmp_path)
     text = destination.read_text(encoding="utf-8")
     published = (Path(__file__).resolve().parents[1] / "install" / "github" / "attack-paths.yml").read_text(encoding="utf-8")
     assert text == published
     assert destination == tmp_path / ".github" / "workflows" / "attack-paths.yml"
-    assert "uses: TemTech-Solutions/attack-path-elimination@main" in text
+    assert f"uses: TemTech-Solutions/attack-path-elimination@{PUBLIC_REF}" in text
     assert "https://github.com/TemTech-Solutions/attack-path-elimination" in text
-    assert "actions/checkout@v4" in text
+    assert "actions/checkout@11d5960a326750d5838078e36cf38b85af677262" in text
     assert "pull_request_target" not in text
     try:
         install(tmp_path, tool="TemTech-Solutions/attack-path-elimination")
@@ -266,8 +277,10 @@ def test_install_hook_writes_into_the_other_repo(tmp_path: Path):
     gitlab_text = gitlab.read_text(encoding="utf-8")
     assert gitlab.name == "attack-paths.gitlab-ci.yml"
     assert "python -m pathfinder analyze ." in gitlab_text
+    assert f"fetch --depth 1 origin {PUBLIC_REF}" in gitlab_text
     action = (Path(__file__).resolve().parents[1] / "action.yml").read_text(encoding="utf-8")
     assert "python -m pathfinder analyze" in action
+    assert "full commit SHA" in action
     assert "pull_request_target" not in action
 
 
@@ -317,6 +330,70 @@ agent = AgentExecutor(tools=tools)
     ai = next(path for path in result["paths"] if path["category"] == "ai_agency")
     assert ai["recommendations"]
     assert ai["recommendations"][0].startswith("Deletion:")
+
+
+def test_every_language_keeps_a_diagnosable_path(tmp_path: Path):
+    (tmp_path / "admin.rb").write_text(
+        """
+        class Admin
+          custodian_key = "placeholder-value"
+          def custodian_wrap
+          end
+          get '/admin/refund' do
+            system(params[:cmd])
+            db.query("SELECT * FROM users WHERE id = " + params[:id])
+          end
+        end
+        """,
+        encoding="utf-8",
+    )
+    (tmp_path / "export.rs").write_text(
+        """
+        #[get("/admin/export")]
+        fn export_admin(q: String) {
+            std::process::Command::new("sh");
+        }
+        """,
+        encoding="utf-8",
+    )
+    (tmp_path / "Dump.kt").write_text(
+        """
+        @GetMapping("/admin/export")
+        fun dump(url: String) {
+          URL(url).openStream()
+        }
+        """,
+        encoding="utf-8",
+    )
+    (tmp_path / "job.zzlang").write_text(
+        """
+        function open_admin(callback) {
+          fetch(callback);
+        }
+        get "/admin/open"
+        verify = False
+        """,
+        encoding="utf-8",
+    )
+    (tmp_path / "runner.c").write_text("void admin_run(char *cmd) { system(cmd); }\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("custodian_key=placeholder-value\n", encoding="utf-8")
+    result = analyze(tmp_path)
+    languages = {node.get("language") for node in result["nodes"]}
+    assert {"ruby", "rust", "kotlin", "c"} <= languages
+    categories = {path["category"] for path in result["paths"]}
+    assert "remote_execution" in categories or "injection" in categories
+    assert any(item.get("theme") == "review" for item in result["findings"])
+    assert any("custodian_wrap" in (item.get("evidence") or "") for item in result["findings"])
+    assert result["adaptation"]["promoted"] >= 1
+    page = render_graph_html(result)
+    assert "Diagnosis" in page
+    assert "Clear path" in page
+    assert "Next step" in page
+    assert "Paths to eliminate" in page
+    assert "What to remove" in page
+    threat = render_threat_html(result)
+    assert "Next step" in threat
+    assert any(item.get("rule") == "APP05" for item in result["findings"])
 
 
 def test_score_bands():

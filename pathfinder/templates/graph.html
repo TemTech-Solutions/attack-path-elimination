@@ -5,23 +5,60 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Attack graph</title>
 <style>
-  :root { color-scheme: dark; --bg: #0c1222; --panel: #141c2f; --line: #27344d; --text: #e7eefc; --muted: #93a0b8; }
+  :root {
+    color-scheme: dark;
+    --bg: #070d18;
+    --panel: #10192c;
+    --line: #2a3a56;
+    --text: #e8eefc;
+    --muted: #93a0b8;
+    --accent: #7dd3fc;
+    --critical: #fb7185;
+    --high: #fb923c;
+    --medium: #facc15;
+    --low: #4ade80;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; height: 100vh; display: grid; grid-template-rows: auto 1fr; background: var(--bg); color: var(--text); font: 14px/1.4 "Segoe UI", system-ui, sans-serif; }
-  header { display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  body {
+    margin: 0;
+    height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    background: radial-gradient(1200px 500px at 20% -10%, #1e3a5f 0%, var(--bg) 55%);
+    color: var(--text);
+    font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+  }
+  header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); }
   header h1 { font-size: 16px; margin: 0; font-weight: 650; }
-  header input, header select { background: #10192d; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
-  a { color: #7dd3fc; }
-  main { display: grid; grid-template-columns: 1fr 320px; min-height: 0; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } aside { max-height: 40vh; } }
-  canvas { width: 100%; height: 100%; display: block; }
-  aside { border-left: 1px solid var(--line); overflow: auto; padding: 12px; background: #10182b; }
+  header input, header select { background: #0d1526; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+  a { color: var(--accent); }
+  main { display: grid; grid-template-columns: 300px 1fr 400px; min-height: 0; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } aside, #issues { max-height: 34vh; } }
+  canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+  aside, #issues { overflow: auto; padding: 12px; background: rgba(8, 14, 28, 0.92); }
+  #issues { border-right: 1px solid var(--line); }
+  aside { border-left: 1px solid var(--line); }
   .muted { color: var(--muted); }
-  button.path { display: block; width: 100%; text-align: left; margin: 0 0 8px; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer; }
-  button.path.active { border-color: #7dd3fc; }
-  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+  button.issue, button.path {
+    display: block; width: 100%; text-align: left; margin: 0 0 8px; padding: 8px;
+    border-radius: 10px; border: 1px solid var(--line); background: #121b2e; color: inherit; cursor: pointer;
+  }
+  button.issue.active, button.path.active { border-color: var(--accent); }
+  .band { font-weight: 700; }
+  .Critical { color: var(--critical); }
+  .High { color: var(--high); }
+  .Medium { color: var(--medium); }
+  .Low { color: var(--low); }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 8px; margin: 0 0 10px; background: var(--panel); }
+  .card h3, h2, h3 { margin: 10px 0 6px; }
+  .card p, .step { margin: 4px 0; }
+  .step { padding: 6px 8px; border-radius: 8px; background: #0d1526; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
   .swatch { display: inline-block; width: 22px; height: 0; border-top: 2px solid #d6e4ff; margin-right: 6px; vertical-align: middle; }
   .swatch.inferred { border-top-style: dashed; }
+  .filters { display: flex; gap: 6px; margin: 8px 0; }
+  .filters button { background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; cursor: pointer; }
+  .filters button.active { color: var(--accent); border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -30,47 +67,76 @@
   <input id="search" type="search" placeholder="Find a component" />
   <select id="paths"></select>
   <span class="legend"><span><i class="swatch"></i>EXTRACTED</span><span><i class="swatch inferred"></i>INFERRED</span></span>
+  <span id="langs" class="muted"></span>
   <a href="report.html">Ranked paths</a>
+  <a href="threat-model.html">Threat model</a>
 </header>
 <main>
+  <section id="issues"></section>
   <canvas id="view"></canvas>
-  <aside id="detail"><p class="muted">Select a node. Color is the community. A solid edge was written in a file. A dashed edge was resolved by the analyzer. Path confidence is the weakest hop.</p></aside>
+  <aside id="detail"><p class="muted">Select an issue. The graph lays out its clear path. The panel gives the diagnosis and the next step.</p></aside>
 </main>
 <script id="data" type="application/json">__PAYLOAD__</script>
 <script>
 const data = JSON.parse(document.getElementById("data").textContent);
-const palette = ["#7dd3fc", "#fb7185", "#facc15", "#4ade80", "#c4b5fd", "#fb923c", "#67e8f9", "#f9a8d4", "#86efac", "#fdba74"];
+const kindColor = {
+  endpoint: "#7dd3fc",
+  function: "#c4b5fd",
+  secret: "#fb7185",
+  datastore: "#4ade80",
+  bucket: "#facc15",
+  workflow: "#fb923c",
+  cloud: "#67e8f9",
+  trigger: "#fdba74",
+  container: "#93c5fd",
+  workload: "#86efac"
+};
 const nodes = data.graph.nodes.map((node, index) => ({
   ...node,
-  x: 480 + Math.cos(index) * 220 + (index % 7) * 8,
-  y: 320 + Math.sin(index * 1.7) * 180 + (index % 5) * 6,
+  x: 520 + Math.cos(index) * 240 + (index % 7) * 8,
+  y: 340 + Math.sin(index * 1.7) * 190 + (index % 5) * 6,
   vx: 0,
-  vy: 0
+  vy: 0,
+  pinned: false
 }));
 const byId = Object.fromEntries(nodes.map((node) => [node.id, node]));
 const edges = data.graph.edges.filter((edge) => byId[edge.source] && byId[edge.target]);
 const canvas = document.getElementById("view");
 const ctx = canvas.getContext("2d");
+const camera = { x: 0, y: 0, k: 1 };
 let selected = null;
 let activePath = null;
 let query = "";
+let bandFilter = "All";
+let dragging = null;
+let moved = 0;
 
 document.getElementById("title").textContent = data.repository + " attack graph";
+const langNote = document.getElementById("langs");
+if ((data.languages || []).length) langNote.textContent = data.languages.join(" · ");
 const pathSelect = document.getElementById("paths");
-const all = document.createElement("option");
-all.value = "";
-all.textContent = "All components";
-pathSelect.appendChild(all);
-data.paths.forEach((path, index) => {
-  const option = document.createElement("option");
-  option.value = String(index);
-  option.textContent = path.band + " " + path.score + " · " + path.confidence + " · " + path.category;
-  pathSelect.appendChild(option);
-});
+function refillSelect() {
+  pathSelect.textContent = "";
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent = "All components";
+  pathSelect.appendChild(all);
+  data.paths.forEach((path, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = path.band + " " + path.score + " · " + String(path.category || "").replace(/_/g, " ");
+    pathSelect.appendChild(option);
+  });
+}
+refillSelect();
 pathSelect.addEventListener("change", () => {
-  activePath = pathSelect.value === "" ? null : data.paths[Number(pathSelect.value)];
-  draw();
-  if (activePath) explainPath(activePath);
+  if (pathSelect.value === "") {
+    activePath = null;
+    nodes.forEach((node) => { node.pinned = false; });
+    draw();
+    return;
+  }
+  showIssue(data.paths[Number(pathSelect.value)]);
 });
 document.getElementById("search").addEventListener("input", (event) => {
   query = event.target.value.trim().toLowerCase();
@@ -79,10 +145,42 @@ document.getElementById("search").addEventListener("input", (event) => {
   else draw();
 });
 
+const issueRoot = document.getElementById("issues");
+function drawIssues() {
+  issueRoot.textContent = "";
+  const filters = document.createElement("div");
+  filters.className = "filters";
+  ["All", "Critical", "High", "Other"].forEach((label) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.className = label === bandFilter ? "active" : "";
+    button.addEventListener("click", () => { bandFilter = label; drawIssues(); });
+    filters.appendChild(button);
+  });
+  issueRoot.appendChild(filters);
+  const visible = data.paths.filter((path) => {
+    if (bandFilter === "All") return true;
+    if (bandFilter === "Other") return path.band !== "Critical" && path.band !== "High";
+    return path.band === bandFilter;
+  });
+  add(issueRoot, "h2", "Issues (" + visible.length + ")");
+  add(issueRoot, "p", "Every composed path, plus the smaller findings the stories do not already name.").className = "muted";
+  visible.forEach((path) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "issue" + (activePath && activePath.id === path.id ? " active" : "");
+    const place = (path.hops && path.hops[0] && path.hops[0].file) ? path.hops[0].file : "";
+    button.textContent = path.band + " " + path.score + " · " + String(path.category || "").replace(/_/g, " ") + (place ? " · " + place : "");
+    button.addEventListener("click", () => showIssue(path));
+    issueRoot.appendChild(button);
+  });
+}
+
 function resize() {
   const rect = canvas.parentElement.getBoundingClientRect();
-  canvas.width = rect.width;
-  canvas.height = rect.height;
+  canvas.width = Math.max(rect.width, 320);
+  canvas.height = Math.max(rect.height, 320);
 }
 window.addEventListener("resize", () => { resize(); draw(); });
 resize();
@@ -97,10 +195,10 @@ function tick() {
       let dx = a.x - b.x;
       let dy = a.y - b.y;
       let dist = Math.hypot(dx, dy) || 1;
-      const force = 900 / (dist * dist);
+      const force = 980 / (dist * dist);
       dx /= dist; dy /= dist;
-      a.vx += dx * force; a.vy += dy * force;
-      b.vx -= dx * force; b.vy -= dy * force;
+      if (!a.pinned) { a.vx += dx * force; a.vy += dy * force; }
+      if (!b.pinned) { b.vx -= dx * force; b.vy -= dy * force; }
     }
   }
   edges.forEach((edge) => {
@@ -109,80 +207,206 @@ function tick() {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const dist = Math.hypot(dx, dy) || 1;
-    const force = (dist - 90) * 0.012;
-    a.vx += dx / dist * force; a.vy += dy / dist * force;
-    b.vx -= dx / dist * force; b.vy -= dy / dist * force;
+    const force = (dist - 110) * 0.01;
+    if (!a.pinned) { a.vx += dx / dist * force; a.vy += dy / dist * force; }
+    if (!b.pinned) { b.vx -= dx / dist * force; b.vy -= dy / dist * force; }
   });
   nodes.forEach((node) => {
+    if (node.pinned) return;
     node.vx += (width / 2 - node.x) * 0.004;
     node.vy += (height / 2 - node.y) * 0.004;
-    node.vx *= 0.75; node.vy *= 0.75;
+    node.vx *= 0.72; node.vy *= 0.72;
     node.x += node.vx; node.y += node.vy;
-    node.x = Math.max(24, Math.min(width - 24, node.x));
-    node.y = Math.max(24, Math.min(height - 24, node.y));
+    node.x = Math.max(36, Math.min(width - 36, node.x));
+    node.y = Math.max(36, Math.min(height - 36, node.y));
   });
 }
 
-function onPath(node) {
-  return activePath && activePath.node_ids.includes(node.id);
+function layoutPath(path) {
+  const ids = [];
+  (path.node_ids || []).forEach((id) => { if (byId[id] && !ids.includes(id)) ids.push(id); });
+  (path.hops || []).forEach((hop) => { if (hop.node_id && byId[hop.node_id] && !ids.includes(hop.node_id)) ids.push(hop.node_id); });
+  nodes.forEach((node) => { node.pinned = ids.includes(node.id); });
+  if (!ids.length) return;
+  const width = canvas.width || 800;
+  const y = (canvas.height || 600) * 0.46;
+  ids.forEach((id, index) => {
+    const node = byId[id];
+    const t = ids.length === 1 ? 0.5 : index / (ids.length - 1);
+    node.x = 90 + (width - 180) * t;
+    node.y = y;
+    node.vx = 0;
+    node.vy = 0;
+  });
+}
+
+function world(x, y) {
+  return { x: (x - camera.x) / camera.k, y: (y - camera.y) / camera.k };
 }
 
 function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const focus = new Set(activePath ? activePath.node_ids : []);
+  ctx.fillStyle = "#08101e";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate(camera.x, camera.y);
+  ctx.scale(camera.k, camera.k);
+  ctx.strokeStyle = "rgba(125, 211, 252, 0.05)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < canvas.width; x += 48) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+  }
+  for (let y = 0; y < canvas.height; y += 48) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  }
+  const focus = new Set(activePath ? (activePath.node_ids || []) : []);
+  (activePath ? activePath.hops || [] : []).forEach((hop) => { if (hop.node_id) focus.add(hop.node_id); });
   edges.forEach((edge) => {
     const a = byId[edge.source];
     const b = byId[edge.target];
-    const hot = activePath && activePath.edges.some((item) => item.source === edge.source && item.target === edge.target && item.kind === edge.relation);
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
-    ctx.strokeStyle = hot ? "#f8fafc" : (edge.confidence === "INFERRED" ? "#64748b" : "#94a3b8");
-    ctx.globalAlpha = activePath && !hot ? 0.15 : 0.9;
-    ctx.lineWidth = hot ? 2.4 : 1;
-    ctx.setLineDash(edge.confidence === "INFERRED" ? [5, 4] : []);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    const hot = activePath && (activePath.edges || []).some((item) => item.source === edge.source && item.target === edge.target && item.kind === edge.relation);
+    drawArrow(a, b, hot, edge.confidence === "INFERRED", activePath && !hot);
   });
-  ctx.globalAlpha = 1;
   nodes.forEach((node) => {
-    const dim = activePath && !focus.has(node.id);
+    const dim = activePath && focus.size && !focus.has(node.id);
     const match = query && node.name.toLowerCase().includes(query);
+    const radius = node.id === (selected && selected.id) ? 11 : (node.risk >= 70 ? 8 : 6);
     ctx.beginPath();
-    ctx.arc(node.x, node.y, node.id === (selected && selected.id) ? 9 : 6, 0, Math.PI * 2);
-    ctx.fillStyle = palette[(node.community || 1) % palette.length];
-    ctx.globalAlpha = dim ? 0.2 : 1;
+    ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = kindColor[node.kind] || "#94a3b8";
+    ctx.globalAlpha = dim ? 0.18 : 1;
     ctx.fill();
-    if (match || node.degree >= 3 || node.id === (selected && selected.id) || onPath(node)) {
+    if (node.risk >= 70) {
+      ctx.strokeStyle = node.risk >= 85 ? "#fb7185" : "#fb923c";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    if (match || node.degree >= 3 || node.id === (selected && selected.id) || focus.has(node.id)) {
+      const order = pathOrder(node.id);
+      const label = (order ? order + "  " : "") + node.name;
       ctx.font = "12px Segoe UI, sans-serif";
       ctx.fillStyle = "#e7eefc";
-      ctx.fillText(node.name, node.x + 10, node.y + 4);
+      ctx.fillText(label, node.x + 12, node.y - 10);
     }
   });
+  ctx.restore();
   ctx.globalAlpha = 1;
+  ctx.fillStyle = "#93a0b8";
+  ctx.font = "12px Segoe UI, sans-serif";
+  ctx.fillText("Scroll to zoom · drag to pan · select an issue to lay out its clear path", 16, canvas.height - 16);
+}
+
+function pathOrder(id) {
+  if (!activePath) return "";
+  const ids = [];
+  (activePath.node_ids || []).forEach((nodeId) => { if (!ids.includes(nodeId)) ids.push(nodeId); });
+  const index = ids.indexOf(id);
+  return index >= 0 ? String(index + 1) : "";
+}
+
+function drawArrow(a, b, hot, inferred, dim) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const pad = 12;
+  const x2 = b.x - dx / dist * pad;
+  const y2 = b.y - dy / dist * pad;
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(x2, y2);
+  ctx.strokeStyle = hot ? "#f8fafc" : (inferred ? "#64748b" : "#94a3b8");
+  ctx.globalAlpha = dim ? 0.12 : 0.9;
+  ctx.lineWidth = hot ? 2.6 : 1;
+  ctx.setLineDash(inferred ? [5, 4] : []);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const angle = Math.atan2(dy, dx);
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - 8 * Math.cos(angle - 0.4), y2 - 8 * Math.sin(angle - 0.4));
+  ctx.lineTo(x2 - 8 * Math.cos(angle + 0.4), y2 - 8 * Math.sin(angle + 0.4));
+  ctx.closePath();
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.fill();
 }
 
 let frames = 0;
 function animate() {
-  if (frames < 180) tick();
+  if (frames < 160) tick();
   frames += 1;
   draw();
-  if (frames < 180) requestAnimationFrame(animate);
+  if (frames < 160) requestAnimationFrame(animate);
 }
 animate();
 
-canvas.addEventListener("click", (event) => {
+canvas.addEventListener("wheel", (event) => {
+  event.preventDefault();
   const rect = canvas.getBoundingClientRect();
-  const x = event.clientX - rect.left;
-  const y = event.clientY - rect.top;
+  const mx = event.clientX - rect.left;
+  const my = event.clientY - rect.top;
+  const before = world(mx, my);
+  camera.k = Math.min(2.8, Math.max(0.35, camera.k * (event.deltaY < 0 ? 1.08 : 0.92)));
+  camera.x = mx - before.x * camera.k;
+  camera.y = my - before.y * camera.k;
+  draw();
+}, { passive: false });
+
+canvas.addEventListener("pointerdown", (event) => {
+  const point = eventPoint(event);
+  const hit = hitNode(point.x, point.y);
+  moved = 0;
+  dragging = { x: event.clientX, y: event.clientY, node: hit, cx: camera.x, cy: camera.y };
+});
+canvas.addEventListener("pointermove", (event) => {
+  if (!dragging) return;
+  moved += Math.abs(event.clientX - dragging.x) + Math.abs(event.clientY - dragging.y);
+  if (dragging.node) {
+    const point = eventPoint(event);
+    dragging.node.x = point.x;
+    dragging.node.y = point.y;
+    dragging.node.pinned = true;
+  } else {
+    camera.x = dragging.cx + (event.clientX - dragging.x);
+    camera.y = dragging.cy + (event.clientY - dragging.y);
+  }
+  draw();
+});
+canvas.addEventListener("pointerup", (event) => {
+  if (dragging && moved < 5) {
+    const point = eventPoint(event);
+    const hit = hitNode(point.x, point.y);
+    if (hit) select(hit);
+  }
+  dragging = null;
+});
+
+function eventPoint(event) {
+  const rect = canvas.getBoundingClientRect();
+  return world(event.clientX - rect.left, event.clientY - rect.top);
+}
+function hitNode(x, y) {
   let best = null;
-  let bestDist = 14;
+  let bestDist = 16;
   nodes.forEach((node) => {
     const dist = Math.hypot(node.x - x, node.y - y);
     if (dist < bestDist) { best = node; bestDist = dist; }
   });
-  if (best) select(best);
-});
+  return best;
+}
+
+function showIssue(path) {
+  activePath = path;
+  const index = data.paths.indexOf(path);
+  if (index >= 0) pathSelect.value = String(index);
+  layoutPath(path);
+  const detail = document.getElementById("detail");
+  detail.textContent = "";
+  add(detail, "h2", "Clear path");
+  detail.appendChild(pathCard(path, false));
+  drawIssues();
+  draw();
+}
 
 function select(node) {
   selected = node;
@@ -191,46 +415,104 @@ function select(node) {
   const detail = document.getElementById("detail");
   detail.textContent = "";
   add(detail, "h2", node.name);
-  add(detail, "p", ["Source: " + (node.file || "resolved") + (node.line ? " L" + node.line : ""), "Community: " + node.community_label, "Degree: " + node.degree, "Kind: " + node.kind].join("\n")).style.whiteSpace = "pre-wrap";
+  const meta = [
+    "Source: " + (node.file || "resolved") + (node.line ? ":" + node.line : ""),
+    "Language: " + (node.language || "resolved"),
+    "Kind: " + node.kind,
+    "Community: " + node.community_label,
+    "Degree: " + node.degree
+  ];
+  add(detail, "p", meta.join("\n")).style.whiteSpace = "pre-wrap";
+  const related = data.paths.filter((path) => (path.node_ids || []).includes(node.id) || (path.hops || []).some((hop) => hop.node_id === node.id));
+  add(detail, "h3", "Paths to eliminate (" + related.length + ")");
+  if (!related.length) add(detail, "p", "This component is not on an elimination path in this snapshot.").className = "muted";
+  related.forEach((path) => detail.appendChild(pathCard(path, true)));
+  if ((node.findings || []).length) {
+    add(detail, "h3", "On this component");
+    node.findings.forEach((finding) => detail.appendChild(findingBlock(finding)));
+  }
   add(detail, "h3", "Connections (" + (outgoing.length + incoming.length) + ")");
-  outgoing.forEach((edge) => add(detail, "p", "→ " + byId[edge.target].name + " [" + edge.relation + "] [" + edge.confidence + "]"));
-  incoming.forEach((edge) => add(detail, "p", "← " + byId[edge.source].name + " [" + edge.relation + "] [" + edge.confidence + "]"));
-  const related = data.paths.filter((path) => path.node_ids.includes(node.id));
-  if (related.length) add(detail, "h3", "Paths through here");
-  related.forEach((path) => {
-    const button = document.createElement("button");
-    button.className = "path";
-    button.textContent = path.band + " " + path.score + " · " + path.confidence;
-    button.addEventListener("click", () => {
-      activePath = path;
-      pathSelect.value = String(data.paths.indexOf(path));
-      explainPath(path);
-      draw();
-    });
-    detail.appendChild(button);
-  });
+  outgoing.forEach((edge) => add(detail, "p", "→ " + nameOf(edge.target) + " [" + edge.relation + "] [" + edge.confidence + "]" + evidenceSuffix(edge)));
+  incoming.forEach((edge) => add(detail, "p", "← " + nameOf(edge.source) + " [" + edge.relation + "] [" + edge.confidence + "]" + evidenceSuffix(edge)));
   draw();
 }
 
-function explainPath(path) {
-  const detail = document.getElementById("detail");
-  detail.textContent = "";
-  add(detail, "h2", path.band + " " + path.score);
-  add(detail, "p", path.narrative);
-  add(detail, "p", "Confidence " + path.confidence + " (weakest hop).");
-  path.edges.forEach((edge) => {
-    const from = byId[edge.source] ? byId[edge.source].name : edge.source;
-    const to = byId[edge.target] ? byId[edge.target].name : edge.target;
-    add(detail, "p", from + " --" + edge.kind + "--> " + to + " [" + edge.confidence + "]");
+function pathCard(path, highlight) {
+  const card = document.createElement("article");
+  card.className = "card";
+  const title = document.createElement("h3");
+  const band = document.createElement("span");
+  band.className = "band " + path.band;
+  band.textContent = path.band + " " + path.score;
+  title.appendChild(band);
+  title.appendChild(document.createTextNode(" · " + String(path.category || "").replace(/_/g, " ")));
+  card.appendChild(title);
+  add(card, "h3", "Diagnosis");
+  add(card, "p", path.diagnosis || path.narrative);
+  add(card, "h3", "Clear path");
+  (path.hops || []).forEach((hop, index) => {
+    const place = hop.file ? hop.file + (hop.line ? ":" + hop.line : "") : "";
+    const row = document.createElement("p");
+    row.className = "step";
+    row.textContent = (index + 1) + ". " + [hop.label, hop.rule, place, hop.evidence].filter(Boolean).join(" · ");
+    if (hop.node_id && byId[hop.node_id]) {
+      row.style.cursor = "pointer";
+      row.addEventListener("click", () => select(byId[hop.node_id]));
+    }
+    card.appendChild(row);
   });
+  if ((path.edges || []).length) {
+    add(card, "p", "How the walk is reachable");
+    path.edges.forEach((edge) => add(card, "p", nameOf(edge.source) + " --" + edge.kind + "--> " + nameOf(edge.target) + " [" + edge.confidence + "]" + evidenceSuffix(edge)));
+  }
+  if ((path.next_steps || []).length) {
+    add(card, "h3", "Next step");
+    path.next_steps.forEach((step) => {
+      const place = step.file ? " · " + step.file + (step.line ? ":" + step.line : "") : "";
+      const row = document.createElement("p");
+      row.className = "step";
+      row.textContent = step.order + ". " + step.action + place;
+      card.appendChild(row);
+    });
+  }
+  if ((path.remove || []).length) {
+    add(card, "h3", "What to remove");
+    path.remove.forEach((text) => add(card, "p", text));
+  }
+  if (highlight) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "path" + (activePath && activePath.id === path.id ? " active" : "");
+    button.textContent = "Show this path on the graph";
+    button.addEventListener("click", () => showIssue(path));
+    card.appendChild(button);
+  }
+  return card;
 }
 
+function findingBlock(finding) {
+  const card = document.createElement("article");
+  card.className = "card";
+  const place = finding.file ? finding.file + (finding.line ? ":" + finding.line : "") : "";
+  add(card, "p", [finding.rule, finding.title, place].filter(Boolean).join(" · "));
+  if (finding.evidence) add(card, "p", finding.evidence);
+  if (finding.recommendation) add(card, "p", "What to remove: " + finding.recommendation);
+  return card;
+}
+
+function evidenceSuffix(edge) {
+  const place = edge.file ? " " + edge.file + (edge.line ? ":" + edge.line : "") : "";
+  return (edge.evidence ? " " + edge.evidence : "") + place;
+}
+function nameOf(id) { return byId[id] ? byId[id].name : id; }
 function add(parent, tag, text) {
   const el = document.createElement(tag);
   el.textContent = text;
   parent.appendChild(el);
   return el;
 }
+drawIssues();
+if (data.paths.length) showIssue(data.paths[0]);
 </script>
 </body>
 </html>

@@ -29,6 +29,21 @@ def build_graph(result: dict) -> dict:
         degree[edge["target"]] += 1
     communities, membership = _communities(nodes, edges, degree)
     by_id = {node["id"]: node for node in nodes}
+    findings: dict[str, list[dict]] = defaultdict(list)
+    for item in result.get("observations") or []:
+        node_id = item.get("node_id")
+        if not node_id:
+            continue
+        findings[node_id].append(
+            {
+                "rule": item.get("rule") or "",
+                "title": item.get("title") or "",
+                "evidence": item.get("evidence") or "",
+                "recommendation": item.get("recommendation") or "",
+                "file": item.get("file"),
+                "line": item.get("line"),
+            }
+        )
     god = [
         {
             "id": node_id,
@@ -52,8 +67,10 @@ def build_graph(result: dict) -> dict:
                 "line": node.get("line"),
                 "risk": node.get("risk") or 0,
                 "degree": degree[node["id"]],
+                "language": node.get("language"),
                 "community": group.get("id"),
                 "community_label": group.get("label") or node["kind"],
+                "findings": findings.get(node["id"]) or [],
             }
         )
     view_edges = [
@@ -84,22 +101,14 @@ def render_graph_html(result: dict) -> str:
 
     template = (Path(__file__).parent / "templates" / "graph.html").read_text(encoding="utf-8")
     graph = result.get("graph") or build_graph(result)
+    paths = elimination_paths(result)
+    languages = sorted({node.get("language") for node in graph.get("nodes") or [] if node.get("language")})
     payload = {
         "repository": result.get("repository"),
         "graph": graph,
-        "paths": [
-            {
-                "id": path["id"],
-                "category": path["category"],
-                "band": path["band"],
-                "score": path["score"],
-                "confidence": path.get("confidence") or "INFERRED",
-                "narrative": path["narrative"],
-                "node_ids": path.get("node_ids") or [],
-                "edges": path.get("graph_edges") or [],
-            }
-            for path in result.get("paths") or []
-        ],
+        "paths": paths,
+        "languages": languages,
+        "adaptation": result.get("adaptation") or {},
     }
     encoded = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
     return template.replace("__PAYLOAD__", encoded)
@@ -139,6 +148,197 @@ def render_graph_report(result: dict) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def elimination_paths(result: dict) -> list[dict]:
+    """Every chain the report says to delete, including objective searches."""
+    edges = result.get("edges") or []
+    packed = []
+    seen = set()
+    for path in result.get("paths") or []:
+        item = _pack_composed(path)
+        key = (item["narrative"], tuple(item["node_ids"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        packed.append(item)
+    for hypothesis in result.get("hypotheses") or []:
+        name = hypothesis.get("name") or "Objective"
+        for path in hypothesis.get("paths") or []:
+            item = _pack_objective(name, path)
+            key = (item["narrative"], tuple(item["node_ids"]))
+            if key in seen:
+                continue
+            seen.add(key)
+            packed.append(item)
+    _annotate_paths(packed, edges)
+    for item in packed:
+        item["edges"] = item.get("graph_edges") or []
+        item.pop("graph_edges", None)
+        item["diagnosis"] = _diagnosis(item)
+        item["next_steps"] = _next_steps(item)
+        item["kind"] = "path"
+    packed.extend(_finding_issues(result, packed))
+    packed.sort(key=lambda item: (-item["score"], item["category"], item["narrative"]))
+    return packed
+
+
+def _pack_composed(path: dict) -> dict:
+    hops = []
+    for hop in path.get("hops") or []:
+        hops.append(
+            {
+                "label": hop.get("label") or "",
+                "node_id": hop.get("node_id"),
+                "rule": hop.get("rule") or "",
+                "file": hop.get("file"),
+                "line": hop.get("line"),
+                "evidence": hop.get("evidence") or "",
+                "recommendation": hop.get("recommendation") or "",
+            }
+        )
+    return {
+        "id": path.get("id"),
+        "category": path.get("category") or "",
+        "band": path.get("band") or "",
+        "score": path.get("score") or 0,
+        "confidence": path.get("confidence") or "INFERRED",
+        "narrative": path.get("narrative") or "",
+        "node_ids": list(path.get("node_ids") or []),
+        "hops": hops,
+        "remove": list(path.get("recommendations") or []),
+        "edges": list(path.get("graph_edges") or []),
+    }
+
+
+def _pack_objective(name: str, path: dict) -> dict:
+    labels = path.get("labels") or []
+    narrative = "An attacker can move from " + " → ".join(labels) + "." if labels else name
+    hops = []
+    for hop in path.get("hops") or []:
+        hops.append(
+            {
+                "label": hop.get("label") or "",
+                "node_id": hop.get("node_id"),
+                "rule": "",
+                "file": hop.get("file"),
+                "line": hop.get("line"),
+                "evidence": "",
+                "recommendation": "",
+            }
+        )
+    remove = list(path.get("remove") or [])
+    for note in path.get("notes") or []:
+        text = note.get("remove") or note.get("detail")
+        if text and text not in remove:
+            remove.append(text)
+    return {
+        "id": path.get("id") or name,
+        "category": name,
+        "band": path.get("band") or "",
+        "score": path.get("score") or 0,
+        "confidence": "INFERRED",
+        "narrative": narrative,
+        "node_ids": list(path.get("node_ids") or []),
+        "hops": hops,
+        "remove": remove,
+        "edges": [],
+    }
+
+
+def _diagnosis(item: dict) -> str:
+    narrative = item.get("narrative") or ""
+    hops = item.get("hops") or []
+    if len(hops) >= 2:
+        start = hops[0]
+        end = hops[-1]
+        return (
+            f"{narrative} The clear path starts at {start.get('label') or 'the entry'}"
+            f" ({_place(start)}) and ends at {end.get('label') or 'the last hop'} ({_place(end)}). "
+            f"Confidence is {item.get('confidence') or 'INFERRED'}, the weakest hop on this walk."
+        )
+    if hops:
+        hop = hops[0]
+        return f"{hop.get('label') or 'Finding'}. {hop.get('evidence') or narrative} Recorded at {_place(hop)}."
+    return narrative
+
+
+def _next_steps(item: dict) -> list[dict]:
+    hops = item.get("hops") or []
+    remove = list(item.get("remove") or [])
+    if not remove:
+        remove = [hop.get("recommendation") for hop in hops if hop.get("recommendation")]
+    steps = []
+    used: set[int] = set()
+    for text in remove:
+        match = None
+        for index, hop in enumerate(hops):
+            recommendation = hop.get("recommendation") or ""
+            if index in used or not recommendation:
+                continue
+            if recommendation == text or recommendation in text:
+                match = hop
+                used.add(index)
+                break
+        steps.append(
+            {
+                "order": len(steps) + 1,
+                "action": text,
+                "file": (match or {}).get("file"),
+                "line": (match or {}).get("line"),
+                "hop": (match or {}).get("label") or "",
+                "node_id": (match or {}).get("node_id"),
+            }
+        )
+    return steps
+
+
+def _finding_issues(result: dict, paths: list[dict]) -> list[dict]:
+    covered = set()
+    for path in paths:
+        for hop in path.get("hops") or []:
+            covered.add((hop.get("rule") or "", hop.get("file"), hop.get("line")))
+    issues = []
+    for finding in result.get("findings") or []:
+        key = (finding.get("rule") or "", finding.get("file"), finding.get("line"))
+        if key in covered:
+            continue
+        covered.add(key)
+        hop = {
+            "label": finding.get("title") or "Finding",
+            "node_id": finding.get("node_id"),
+            "rule": finding.get("rule") or "",
+            "file": finding.get("file"),
+            "line": finding.get("line"),
+            "evidence": finding.get("evidence") or "",
+            "recommendation": finding.get("recommendation") or "",
+        }
+        narrative = f"{hop['label']}. {hop['evidence']}".strip()
+        item = {
+            "id": finding.get("id") or key,
+            "category": finding.get("theme") or "review",
+            "band": finding.get("band") or "Low",
+            "score": finding.get("score") or 0,
+            "confidence": "EXTRACTED",
+            "narrative": narrative,
+            "node_ids": [finding["node_id"]] if finding.get("node_id") else [],
+            "hops": [hop],
+            "remove": [hop["recommendation"]] if hop["recommendation"] else [],
+            "edges": [],
+            "kind": "finding",
+        }
+        item["diagnosis"] = _diagnosis(item)
+        item["next_steps"] = _next_steps(item)
+        issues.append(item)
+    return issues
+
+
+def _place(hop: dict) -> str:
+    if not hop or not hop.get("file"):
+        return "resolved from the graph"
+    if hop.get("line"):
+        return f"{hop['file']}:{hop['line']}"
+    return str(hop["file"])
+
+
 def _annotate_paths(paths: list[dict], edges: list[dict]) -> None:
     index: dict[str, list[dict]] = defaultdict(list)
     for edge in edges:
@@ -170,6 +370,8 @@ def _annotate_paths(paths: list[dict], edges: list[dict]) -> None:
                     "kind": edge["kind"],
                     "confidence": edge.get("confidence") or "EXTRACTED",
                     "evidence": edge.get("evidence") or "",
+                    "file": edge.get("file"),
+                    "line": edge.get("line"),
                 }
             )
         inferred = gap or not unique or any(item["confidence"] == "INFERRED" for item in unique)

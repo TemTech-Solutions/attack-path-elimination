@@ -37,7 +37,9 @@ from pathfinder.platform import (
     connect_runtime,
     looks_like_cloudformation,
 )
+from pathfinder.adapt import adapt_repository
 from pathfinder.scoring import score_path
+from pathfinder.universal import analyze_unclaimed, deepen
 
 SKIP_DIRS = {
     ".git", "node_modules", "venv", ".venv", "__pycache__", "dist", "build",
@@ -74,36 +76,52 @@ def analyze(target: Path) -> dict:
             continue
         suffix = path.suffix.lower()
         name = path.name.lower()
+        claimed = False
         try:
             if suffix == ".py":
                 python_facts.extend(parse_python(rel, text))
+                claimed = True
             elif suffix in CODE:
                 CODE[suffix](model, rel, text)
+                claimed = True
             elif name == "dockerfile" or name.startswith("dockerfile.") or name.endswith(".dockerfile"):
                 analyze_docker(model, rel, text)
+                claimed = True
             elif suffix == ".tf":
                 analyze_terraform(model, rel, text)
+                claimed = True
             elif suffix == ".sql":
                 analyze_sql(model, rel, text)
+                claimed = True
             elif name == "requirements.txt":
                 analyze_requirements(model, rel, text)
+                claimed = True
             elif name == "package.json":
                 analyze_package_json(model, rel, text)
+                claimed = True
             elif "/.github/workflows/" in f"/{rel}" and suffix in {".yml", ".yaml"}:
                 analyze_github_workflow(model, rel, text)
+                claimed = True
             elif name == ".gitlab-ci.yml":
                 analyze_gitlab(model, rel, text)
+                claimed = True
             elif name in {"azure-pipelines.yml", "azure-pipelines.yaml"}:
                 analyze_azure_pipeline(model, rel, text)
+                claimed = True
             elif suffix in {".yml", ".yaml", ".json"} and looks_like_cloudformation(text):
                 analyze_cloudformation(model, rel, text)
+                claimed = True
             elif suffix in {".yml", ".yaml"} and _looks_openapi(text):
                 openapi_files.append((rel, text))
+                claimed = True
             elif suffix in {".yml", ".yaml"} and _looks_k8s(text):
                 analyze_kubernetes(model, rel, text)
+                claimed = True
+            if not claimed:
+                analyze_unclaimed(model, rel, text)
             if suffix in {".py", ".js", ".jsx", ".mjs", ".ts", ".tsx", ".ipynb"}:
                 analyze_ai(model, rel, text)
-                analyze_embedded_secret(model, rel, text)
+            analyze_embedded_secret(model, rel, text)
         except SyntaxError as exc:
             model.error(rel, f"syntax: {exc}")
         except Exception as exc:  # one bad file should not drop the rest of the graph
@@ -116,6 +134,8 @@ def analyze(target: Path) -> dict:
         analyze_openapi(model, rel, text)
     connect_runtime(model)
     _materialize_polyglot_sql(model)
+    deepen(model, root)
+    adapt_repository(model)
     paths = build_paths(model)
     packaged = _package(model, paths)
     from pathfinder.query import attach_search
@@ -214,6 +234,7 @@ def _package(model: RepoModel, paths: list[dict]) -> dict:
         "per": per,
         "parse_errors": model.parse_errors,
         "trend": None,
+        "adaptation": getattr(model, "adaptation", None),
     }
     return attach_graph(packaged)
 

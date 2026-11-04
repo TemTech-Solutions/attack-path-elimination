@@ -11,12 +11,15 @@ import re
 from pathlib import Path
 
 PUBLIC_SLUG = "TemTech-Solutions/attack-path-elimination"
-PUBLIC_REF = "main"
+# Full commit of the action consumers run. A branch name or moving tag is not a pin.
+# .github/workflows/pin-action.yml rewrites this on each push to main.
+PUBLIC_REF = "2ce8e72b1ce3ffe116f3fbbe510532ef87370bc2"
+CHECKOUT_REF = "11d5960a326750d5838078e36cf38b85af677262"  # actions/checkout v4.4.0
 PUBLIC_URL = f"https://github.com/{PUBLIC_SLUG}"
 PUBLIC_GIT = f"{PUBLIC_URL}.git"
 PUBLIC_WORKFLOW = (
     "https://raw.githubusercontent.com/"
-    f"{PUBLIC_SLUG}/{PUBLIC_REF}/install/github/attack-paths.yml"
+    f"{PUBLIC_SLUG}/main/install/github/attack-paths.yml"
 )
 
 
@@ -29,7 +32,7 @@ def install(
     *,
     platform: str = "github",
     tool: str | None = None,
-    ref: str = "main",
+    ref: str = PUBLIC_REF,
     force: bool = False,
 ) -> Path:
     root = Path(target).resolve()
@@ -43,7 +46,7 @@ def install(
     elif platform == "gitlab":
         url = _https_url(tool) if tool else PUBLIC_GIT
         destination = root / "attack-paths.gitlab-ci.yml"
-        content = _gitlab_ci(url)
+        content = _gitlab_ci(url, ref)
     else:
         raise InstallError("platform must be github or gitlab")
     if destination.exists() and not force:
@@ -73,14 +76,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout this repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@{CHECKOUT_REF} # v4.4.0
 
       - name: Analyze attack paths
         uses: {action}
 """
 
 
-def _gitlab_ci(tool_url: str) -> str:
+def _gitlab_ci(tool_url: str, ref: str) -> str:
     return f"""# Installed from {PUBLIC_URL}
 # Include this file from the repository's .gitlab-ci.yml:
 # include:
@@ -91,7 +94,11 @@ attack-paths:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
-    - git clone --depth 1 {tool_url} "$CI_PROJECT_DIR/.pathfinder-tool"
+    - git init "$CI_PROJECT_DIR/.pathfinder-tool"
+    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" remote add origin {tool_url}
+    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" fetch --depth 1 origin {ref}
+    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" checkout --detach FETCH_HEAD
+    - python -m pip install --upgrade pip
     - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
     - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
   artifacts:
@@ -99,6 +106,7 @@ attack-paths:
     paths:
       - attack-paths-report/report.html
       - attack-paths-report/graph.html
+      - attack-paths-report/threat-model.html
       - attack-paths-report/graph-report.md
       - attack-paths-report/pr-comment.md
       - attack-paths-report/graph.json

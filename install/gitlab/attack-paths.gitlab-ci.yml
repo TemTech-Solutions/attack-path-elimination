@@ -8,7 +8,11 @@ attack-paths:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
-    - git clone --depth 1 https://github.com/TemTech-Solutions/attack-path-elimination.git "$CI_PROJECT_DIR/.pathfinder-tool"
+    - git init "$CI_PROJECT_DIR/.pathfinder-tool"
+    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
+    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" fetch --depth 1 origin 2ce8e72b1ce3ffe116f3fbbe510532ef87370bc2
+    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" checkout --detach FETCH_HEAD
+    - python -m pip install --upgrade pip
     - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
     - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
   artifacts:
@@ -16,6 +20,7 @@ attack-paths:
     paths:
       - attack-paths-report/report.html
       - attack-paths-report/graph.html
+      - attack-paths-report/threat-model.html
       - attack-paths-report/graph-report.md
       - attack-paths-report/pr-comment.md
       - attack-paths-report/graph.json

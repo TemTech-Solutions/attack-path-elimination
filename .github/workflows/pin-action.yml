@@ -1,0 +1,35 @@
+name: Pin the action
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  pin:
+    if: ${{ !contains(github.event.head_commit.message, '[pin]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Pin install hooks to this commit
+        env:
+          NEW_SHA: ${{ github.sha }}
+        run: python pathfinder/pin_release.py
+
+      - name: Commit the pin
+        run: |
+          if git diff --quiet; then
+            echo "Install hooks already pin ${NEW_SHA}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pathfinder/install.py install GUIDE.md README.md
+          git commit -m "Pin the action to ${NEW_SHA} [pin]"
+          git push
+        env:
+          NEW_SHA: ${{ github.sha }}

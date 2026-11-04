@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Threat model</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0c1222;
+    --panel: #141c2f;
+    --line: #27344d;
+    --text: #e7eefc;
+    --muted: #93a0b8;
+    --accent: #7dd3fc;
+    --critical: #fb7185;
+    --high: #fb923c;
+    --medium: #facc15;
+    --low: #4ade80;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  header, main { padding: 20px 24px; }
+  header { border-bottom: 1px solid var(--line); }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  h2 { margin: 22px 0 8px; font-size: 18px; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); }
+  .stats, .filters, .boundaries { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .stat, .card, .asset {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .stat { min-width: 140px; }
+  .stat b { display: block; font-size: 20px; }
+  button.filter {
+    background: #10192d;
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  button.filter.active { border-color: var(--accent); color: var(--accent); }
+  .card { margin: 0 0 12px; }
+  .card h3 { margin: 0 0 6px; font-size: 16px; }
+  .Critical { color: var(--critical); }
+  .High { color: var(--high); }
+  .Medium { color: var(--medium); }
+  .Low { color: var(--low); }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .tag { border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--muted); font-size: 12px; }
+  ul { margin: 6px 0; padding-left: 18px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Threat model</h1>
+  <p class="muted"><a href="report.html">Ranked paths</a> · <a href="graph.html">Graph</a></p>
+  <p class="muted">Each threat is a walk the files already contain. The change to make is deletion or constraint of that edge.</p>
+  <div class="stats" id="stats"></div>
+  <div class="boundaries" id="boundaries"></div>
+</header>
+<main>
+  <h2>Frameworks</h2>
+  <div class="filters" id="filters"></div>
+  <h2>Assets in scope</h2>
+  <div class="boundaries" id="assets"></div>
+  <h2>Threats to eliminate</h2>
+  <div id="threats"></div>
+  <h2>Review notes</h2>
+  <div id="notes"></div>
+</main>
+<script id="data" type="application/json">__PAYLOAD__</script>
+<script>
+const model = JSON.parse(document.getElementById("data").textContent);
+document.getElementById("title").textContent = model.repository + " threat model";
+const stats = document.getElementById("stats");
+[
+  ["Threats", model.summary.threats],
+  ["Critical", model.summary.critical],
+  ["Frameworks matched", model.summary.frameworks],
+  ["Assets", model.summary.assets]
+].forEach(([label, value]) => {
+  const el = document.createElement("div");
+  el.className = "stat";
+  const b = document.createElement("b");
+  b.textContent = value;
+  el.appendChild(b);
+  el.appendChild(document.createTextNode(label));
+  stats.appendChild(el);
+});
+const boundaries = document.getElementById("boundaries");
+model.boundaries.forEach((item) => {
+  const el = document.createElement("div");
+  el.className = "stat";
+  const b = document.createElement("b");
+  b.textContent = item.count;
+  el.appendChild(b);
+  el.appendChild(document.createTextNode(item.name));
+  boundaries.appendChild(el);
+});
+const assets = document.getElementById("assets");
+model.assets.forEach((asset) => {
+  const el = document.createElement("div");
+  el.className = "asset";
+  const place = asset.file ? asset.file + (asset.line ? ":" + asset.line : "") : asset.kind;
+  el.textContent = asset.name + " · " + asset.kind + " · " + place;
+  assets.appendChild(el);
+});
+let active = "All";
+const filters = document.getElementById("filters");
+function chip(label, count) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "filter" + (label === active ? " active" : "");
+  button.textContent = count === undefined ? label : label + " (" + count + ")";
+  button.addEventListener("click", () => {
+    active = label;
+    drawFilters();
+    drawThreats();
+  });
+  filters.appendChild(button);
+}
+function drawFilters() {
+  filters.textContent = "";
+  chip("All", model.threats.length);
+  model.frameworks.filter((item) => item.matched).forEach((item) => chip(item.name, item.count));
+}
+function drawThreats() {
+  const root = document.getElementById("threats");
+  root.textContent = "";
+  const threats = model.threats.filter((threat) => active === "All" || threat.frameworks.includes(active));
+  if (!threats.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No threat in this framework for this snapshot.";
+    root.appendChild(empty);
+    return;
+  }
+  threats.forEach((threat) => root.appendChild(card(threat)));
+}
+function card(threat) {
+  const el = document.createElement("article");
+  el.className = "card";
+  const title = document.createElement("h3");
+  const band = document.createElement("span");
+  band.className = threat.band;
+  band.textContent = threat.band + " " + threat.score;
+  title.appendChild(band);
+  title.appendChild(document.createTextNode(" · " + threat.name));
+  el.appendChild(title);
+  if (threat.question) add(el, "p", threat.question);
+  add(el, "p", threat.narrative);
+  const tags = document.createElement("div");
+  tags.className = "tags";
+  threat.frameworks.forEach((name) => {
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = name;
+    tags.appendChild(tag);
+  });
+  threat.stride.forEach((name) => {
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = "STRIDE · " + name;
+    tags.appendChild(tag);
+  });
+  el.appendChild(tags);
+  const dread = threat.dread || {};
+  if (dread.exposure !== undefined && dread.exposure !== null) {
+    add(el, "p", "DREAD factors · exposure " + dread.exposure + " · privilege " + dread.privilege + " · asset " + dread.asset + " · exploitability " + dread.exploitability);
+  }
+  if ((threat.missing_controls || []).length) add(el, "p", "Missing controls: " + threat.missing_controls.join(", "));
+  if ((threat.hops || []).length) {
+    add(el, "p", "Reachable walk");
+    const list = document.createElement("ul");
+    threat.hops.forEach((hop) => {
+      const li = document.createElement("li");
+      const place = hop.file ? hop.file + (hop.line ? ":" + hop.line : "") : "";
+      li.textContent = [hop.label, hop.rule, place, hop.evidence].filter(Boolean).join(" · ");
+      list.appendChild(li);
+    });
+    el.appendChild(list);
+  }
+  if ((threat.notes || []).length) {
+    add(el, "p", "Review");
+    const list = document.createElement("ul");
+    threat.notes.forEach((text) => {
+      const li = document.createElement("li");
+      li.textContent = text;
+      list.appendChild(li);
+    });
+    el.appendChild(list);
+  }
+  if ((threat.remove || []).length) {
+    add(el, "p", "Next step");
+    add(el, "p", threat.remove[0]);
+    add(el, "p", "What to remove");
+    const list = document.createElement("ul");
+    threat.remove.forEach((text) => {
+      const li = document.createElement("li");
+      li.textContent = text;
+      list.appendChild(li);
+    });
+    el.appendChild(list);
+  }
+  return el;
+}
+function drawNotes() {
+  const root = document.getElementById("notes");
+  const seen = new Set();
+  model.notes.forEach((note) => {
+    const key = note.framework + "|" + note.detail;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const el = document.createElement("article");
+    el.className = "card";
+    add(el, "p", note.framework + (note.agent ? " · " + note.agent : ""));
+    add(el, "p", note.detail);
+    root.appendChild(el);
+  });
+  if (!root.childElementCount) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No extra review note in this snapshot.";
+    root.appendChild(empty);
+  }
+}
+function add(parent, tag, text) {
+  const el = document.createElement(tag);
+  el.textContent = text;
+  parent.appendChild(el);
+  return el;
+}
+drawFilters();
+drawThreats();
+drawNotes();
+</script>
+</body>
+</html>

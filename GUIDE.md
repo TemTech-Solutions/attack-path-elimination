@@ -24,8 +24,10 @@ Push that commit to `main` or `master`. The workflow also runs when you open a p
 The workflow file checks out the application repository, then runs:
 
 ```yaml
-uses: TemTech-Solutions/attack-path-elimination@main
+uses: TemTech-Solutions/attack-path-elimination@2ce8e72b1ce3ffe116f3fbbe510532ef87370bc2
 ```
+
+That value is a full commit SHA. The action refuses a branch or a tag, so a workflow that says `@main` or `@v1` fails before it analyzes anything. Each push to `main` rewrites this hook to that push's commit and pushes the updated file. A repository that already committed an older SHA keeps running that commit until someone copies the new hook.
 
 ## 2. Read the result
 
@@ -118,7 +120,8 @@ Use this when you want a report on your machine before the GitHub run finishes. 
 
 ```powershell
 cd attack-path-elimination
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 python -m pathfinder analyze path\to\repository-to-scan --out out\repository-to-scan
 start out\repository-to-scan\report.html
 ```
@@ -231,7 +234,7 @@ When the repository contains both an untrusted deploy path and an application pa
 
 ## Read the graph
 
-`graph.html` sits next to `report.html` in the artifact and in the local `--out` folder. Open it in a browser. Communities are colors. A solid edge was written in a file (`EXTRACTED`). A dashed edge was resolved across files, images, or deploy steps (`INFERRED`). Click a node for its source line, its community, its degree, and every connection. The path menu highlights one chain. That chain's confidence is its weakest hop.
+`graph.html` sits next to `report.html` and `threat-model.html` in the artifact and in the local `--out` folder. Open it in a browser. The left rail is every issue, including the smaller findings that are not already a full chain. Select one and the graph lays that clear path out from the entry to the last hop. The right panel is the diagnosis, each hop with its file and line, and the next deletion or constraint. A solid edge was written in a file (`EXTRACTED`). A dashed edge was resolved across files, images, or deploy steps (`INFERRED`). Scroll to zoom and drag to pan. That chain's confidence is its weakest hop.
 
 `graph-report.md` lists the god nodes (the components the most edges pass through), the communities, and each chain with those hops. `graph.json` is the same snapshot, including `graph.schema_version`.
 
@@ -241,4 +244,4 @@ This map follows the knowledge-graph idea used by [Graphify](https://github.com/
 
 A chain means the files contain a connected walk from an entry to a valuable target: a public route, an untrusted pipeline, or a public bucket, through calls and deploy edges, to credentials, data, or a production workload.
 
-Confirm the file and line before you treat a hop as a defect. Pattern matches on Java, JavaScript, Go, C#, and PHP are narrower than the Python AST. A score ranks removal order inside this snapshot. It is not a CVSS score, and it is not proof that a specific request would succeed.
+Confirm the file and line before you treat a hop as a defect. Python uses the AST. Other languages use the same structural pass for routes, queries, execution, outbound calls, credentials, and smaller signals such as a disabled certificate check or a credential assigned in source. A local model learns names this repository already confirmed and carries them to the next scan. A score ranks removal order inside this snapshot. It is not a CVSS score, and it is not proof that a specific request would succeed.

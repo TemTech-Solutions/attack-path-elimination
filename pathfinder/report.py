@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from pathfinder.graphview import render_graph_html, render_graph_report
+from pathfinder.threatmodel import render_threat_html
 
 
 def render_html(result: dict) -> str:
@@ -79,12 +80,14 @@ def write_outputs(result: dict, directory: Path) -> dict[str, Path]:
     directory.mkdir(parents=True, exist_ok=True)
     html_path = directory / "report.html"
     graph_path = directory / "graph.html"
+    threat_path = directory / "threat-model.html"
     report_path = directory / "graph-report.md"
     json_path = directory / "graph.json"
     comment_path = directory / "pr-comment.md"
     cypher_path = directory / "graph.cypher"
     html_path.write_text(render_html(result), encoding="utf-8")
     graph_path.write_text(render_graph_html(result), encoding="utf-8")
+    threat_path.write_text(render_threat_html(result), encoding="utf-8")
     report_path.write_text(render_graph_report(result), encoding="utf-8")
     json_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     comment_path.write_text(pr_comment(result), encoding="utf-8")
@@ -92,6 +95,7 @@ def write_outputs(result: dict, directory: Path) -> dict[str, Path]:
     return {
         "html": html_path,
         "graph": graph_path,
+        "threat": threat_path,
         "report": report_path,
         "json": json_path,
         "comment": comment_path,

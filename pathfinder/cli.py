@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from pathfinder.analyze import analyze, apply_history
-from pathfinder.install import InstallError, install
+from pathfinder.install import PUBLIC_REF, InstallError, install
 from pathfinder.query import (
     FRAMEWORKS,
     QueryError,
@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     install_parser.add_argument("target", type=Path, help="Root of the application repository")
     install_parser.add_argument("--platform", choices=("github", "gitlab"), default="github")
     install_parser.add_argument("--tool", help="owner/repository or https://github.com/owner/repository")
-    install_parser.add_argument("--ref", default="main", help="Git ref of this platform action")
+    install_parser.add_argument("--ref", default=PUBLIC_REF, help="Full commit SHA of this action")
     install_parser.add_argument("--force", action="store_true")
 
     find_parser = sub.add_parser("find-path", help="Ask whether an attacker can get from one role to another")
@@ -205,6 +205,7 @@ def _run_analyze(target: Path, out: Path) -> int:
         _print(f"Objectives reached: {len(reached)}")
     _print(f"HTML report: {paths['html']}")
     _print(f"Graph: {paths['graph']}")
+    _print(f"Threat model: {paths['threat']}")
     return 0
 
 

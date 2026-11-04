@@ -7,3 +7,4 @@ out/
 data/
 *.egg-info/
 .mypy_cache/
+.pathfinder/
