@@ -117,7 +117,7 @@ git push
 The workflow runs on pull requests and on pushes to `main` or `master`. The job checks the application out, then runs:
 
 ```yaml
-uses: TemTech-Solutions/attack-path-elimination@be1e5ddba0f48bdda8f58887d5b18bcb3dcda508
+uses: TemTech-Solutions/attack-path-elimination@e0b0be88313696dc4a2e8e8d4059b35f83ab8f6d
 ```
 
 That ref is a full commit SHA. The action refuses a branch or a tag before it analyzes anything, because a branch or tag can move after review. The published hook in this repository is rewritten to the new commit when `main` moves. A repository that already committed an older SHA keeps running that commit until someone replaces the workflow.
@@ -259,22 +259,38 @@ severity: critical
 
 ## False positives the remediation team has accepted
 
-A structural hit stays until the evidence is gone or the team records an exception. The reason must be at least 8 characters. A blank mark does not hide a finding. If `.pathfinder/exceptions.yml` cannot be read, nothing is suppressed.
+A structural hit stays until the evidence is gone or the calling repository records an exception. The exception belongs to the repository that runs the action. It is not stored in `TemTech-Solutions/attack-path-elimination`.
 
-```bash
-python -m pathfinder except path/to/repository-to-scan \
-  --rule APP05 --file admin.rb --line 2 \
-  --reason "Sandbox helper, not a production entry" --by remediation
+Add `pathfinder-exceptions.yml` to that repository and commit it. The root is the file list on the repository home page, the same list that contains `README.md` and the `.github` folder. The filename has no leading dot.
+
+```text
+calling-repository/
+  README.md
+  .github/
+    workflows/
+      attack-paths.yml
+  pathfinder-exceptions.yml
 ```
 
-Or in the source, on that line or on the comment line above it:
+GitHub, GitLab, and Azure DevOps can add that file from the browser. Copy `rule`, `file`, and `line` from the report. The reason must be at least 8 characters. A blank reason does not hide a finding. If the file cannot be read, nothing is suppressed.
+
+```yaml
+exceptions:
+  - rule: APP05
+    file: admin.rb
+    line: 2
+    reason: Sandbox helper, not a production entry
+    by: remediation
+```
+
+The same mark can sit in the source of the calling repository, on that line or on the comment line above it:
 
 ```ruby
 # pathfinder: false-positive: sandbox helper, not a production entry
 system(params[:cmd])
 ```
 
-Later scans omit that case from the paths, the graph, and the severity, STRIDE, DREAD, and PASTA groups. The threat model lists it under **Exceptions**, with the reason and who marked it.
+The next run of that repository reads the committed file from the checkout. That case leaves the paths, the graph, and the severity, STRIDE, DREAD, and PASTA groups. The threat model lists it under **Exceptions**, with the reason and who marked it. An older `.pathfinder/exceptions.yml` in that same repository is still read.
 
 ## Optional: a review service and webhooks
 

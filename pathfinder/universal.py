@@ -251,6 +251,8 @@ def deepen(model: RepoModel, root: Path) -> None:
             continue
         if path.stat().st_size > 1_000_000:
             continue
+        if path.name.lower() in {"pathfinder-exceptions.yml", "pathfinder-exceptions.yaml"}:
+            continue
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:

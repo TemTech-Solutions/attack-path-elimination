@@ -1,10 +1,10 @@
 """Remediation exceptions.
 
 A finding is kept when the structural evidence is still in the file. The
-remediation team can mark a case as a false positive, in `.pathfinder/exceptions.yml`
-or with a `pathfinder: false-positive` comment. A marked case is removed from
-paths, the graph, and the threat groups on later scans. A blank reason does
-not suppress anything.
+calling repository commits `pathfinder-exceptions.yml` at the root of the
+scanned tree, or marks the line with `pathfinder: false-positive`. A marked
+case is removed from paths, the graph, and the threat groups on later scans.
+A blank reason does not suppress anything.
 """
 
 from __future__ import annotations
@@ -17,7 +17,9 @@ import yaml
 
 from pathfinder.model import RepoModel
 
-EXCEPTIONS_FILE = Path(".pathfinder") / "exceptions.yml"
+EXCEPTIONS_FILE = Path("pathfinder-exceptions.yml")
+LEGACY_EXCEPTIONS_FILE = Path(".pathfinder") / "exceptions.yml"
+EXCEPTION_FILES = (EXCEPTIONS_FILE, LEGACY_EXCEPTIONS_FILE)
 ACCEPTED = {"false_positive", "false-positive", "fp", "ignore"}
 MARKER = re.compile(
     r"pathfinder:\s*(?:ignore|false-positive|false_positive)"
@@ -73,40 +75,18 @@ def apply_exceptions(model: RepoModel) -> list[dict]:
 
 
 def load_exceptions(root: Path) -> tuple[list[dict], str]:
-    path = Path(root) / EXCEPTIONS_FILE
-    if not path.exists():
-        return [], ""
-    try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as exc:
-        return [], f"exceptions file was not applied: {exc}"
-    if not isinstance(raw, dict):
-        return [], "exceptions file was not applied: the document must be a mapping"
-    entries = raw.get("exceptions") or []
-    if not isinstance(entries, list):
-        return [], "exceptions file was not applied: exceptions must be a list"
-    usable = []
-    for entry in entries:
-        if not isinstance(entry, dict):
+    usable: list[dict] = []
+    errors: list[str] = []
+    for relative in EXCEPTION_FILES:
+        path = Path(root) / relative
+        if not path.is_file():
             continue
-        status = str(entry.get("status") or "false_positive").lower().replace(" ", "_")
-        reason = " ".join(str(entry.get("reason") or "").split())
-        if status not in ACCEPTED or len(reason) < MIN_REASON:
+        batch, error = _read_exception_file(path, relative)
+        if error:
+            errors.append(error)
             continue
-        usable.append(
-            {
-                "fingerprint": str(entry.get("fingerprint") or ""),
-                "rule": str(entry.get("rule") or "").upper(),
-                "file": str(entry.get("file") or "").replace("\\", "/"),
-                "line": _line(entry.get("line")),
-                "evidence": " ".join(str(entry.get("evidence") or "").split()),
-                "scope": str(entry.get("scope") or "finding"),
-                "reason": reason,
-                "by": str(entry.get("by") or "remediation"),
-                "status": "false_positive",
-            }
-        )
-    return usable, ""
+        usable.extend(batch)
+    return usable, "; ".join(errors)
 
 
 def record_exception(root: Path, *, rule: str, file: str, line: int, reason: str, by: str = "remediation") -> Path:
@@ -145,12 +125,51 @@ def record_exception(root: Path, *, rule: str, file: str, line: int, reason: str
             break
     if not replaced:
         existing.append(entry)
-    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        yaml.safe_dump({"version": 1, "exceptions": existing}, sort_keys=False),
+        "# False positives for this repository. Commit this file at the repository root.\n"
+        + yaml.safe_dump({"version": 1, "exceptions": existing}, sort_keys=False),
         encoding="utf-8",
+        newline="\n",
     )
+    legacy = Path(root) / LEGACY_EXCEPTIONS_FILE
+    if legacy.is_file():
+        legacy.unlink()
     return path
+
+
+def _read_exception_file(path: Path, relative: Path) -> tuple[list[dict], str]:
+    label = relative.as_posix()
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        return [], f"{label} was not applied: {exc}"
+    if not isinstance(raw, dict):
+        return [], f"{label} was not applied: the document must be a mapping"
+    entries = raw.get("exceptions") or []
+    if not isinstance(entries, list):
+        return [], f"{label} was not applied: exceptions must be a list"
+    usable = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        status = str(entry.get("status") or "false_positive").lower().replace(" ", "_")
+        reason = " ".join(str(entry.get("reason") or "").split())
+        if status not in ACCEPTED or len(reason) < MIN_REASON:
+            continue
+        usable.append(
+            {
+                "fingerprint": str(entry.get("fingerprint") or ""),
+                "rule": str(entry.get("rule") or "").upper(),
+                "file": str(entry.get("file") or "").replace("\\", "/"),
+                "line": _line(entry.get("line")),
+                "evidence": " ".join(str(entry.get("evidence") or "").split()),
+                "scope": str(entry.get("scope") or "finding"),
+                "reason": reason,
+                "by": str(entry.get("by") or "remediation"),
+                "status": "false_positive",
+            }
+        )
+    return usable, ""
 
 
 def _match(observation: dict, entries: list[dict], marks: list[tuple[set[str] | None, str]]) -> dict | None:

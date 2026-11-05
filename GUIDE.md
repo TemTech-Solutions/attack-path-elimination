@@ -275,24 +275,38 @@ A chain counts as gone only when its narrative changes or disappears. Renaming a
 
 ## 11. Record a false positive
 
-A finding stays while the structural evidence stays. When the remediation team has reviewed a hit and it is a false positive, record it. Later scans leave it out of the paths, the graph, and the threat groups.
+A finding stays while the structural evidence stays. When the remediation team has reviewed a hit and it is a false positive, record it in the repository that runs the action. The TemTech repository does not keep that list.
 
-```bash
-python -m pathfinder except path/to/repository-to-scan \
-  --rule APP05 --file admin.rb --line 2 \
-  --reason "Sandbox helper, not a production entry" --by remediation
+Open the calling repository. The root is the file list on its home page, the same list that contains `README.md` and `.github`. Add `pathfinder-exceptions.yml` there and commit it. The filename has no leading dot, and the workflow directory is a different file: `.github/workflows/attack-paths.yml` only runs the scan.
+
+```text
+calling-repository/
+  README.md
+  .github/
+    workflows/
+      attack-paths.yml
+  pathfinder-exceptions.yml
 ```
 
-That writes `.pathfinder/exceptions.yml` in the repository being scanned. Use the file and line from the report. The reason must be at least 8 characters.
+GitHub, GitLab, and Azure DevOps can add the file from the browser. Copy the rule, file, and line from the report. The reason must be at least 8 characters.
 
-The same mark can sit on the line, or on the comment line directly above it:
+```yaml
+exceptions:
+  - rule: APP05
+    file: admin.rb
+    line: 2
+    reason: Sandbox helper, not a production entry
+    by: remediation
+```
+
+The same mark can sit on the line in that repository, or on the comment line directly above it:
 
 ```ruby
 # pathfinder: false-positive: sandbox helper, not a production entry
 system(params[:cmd])
 ```
 
-`python -m pathfinder exceptions path/to/repository-to-scan` lists what is recorded. A blank reason does not suppress a finding. If the exceptions file is unreadable, the scan keeps every finding and reports the file error.
+The next run reads the committed file from the checkout and leaves that case out of the paths, the graph, and the threat groups. A blank reason does not suppress a finding. If the exceptions file is unreadable, the scan keeps every finding and reports the file error. An older `.pathfinder/exceptions.yml` in that repository is still read.
 
 In `threat-model.html`, open **Exceptions** to see the reason and who marked the case.
 

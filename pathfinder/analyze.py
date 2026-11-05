@@ -290,6 +290,8 @@ def _files(root: Path):
             continue
         if path.stat().st_size > 1_000_000:
             continue
+        if path.name.lower() in {"pathfinder-exceptions.yml", "pathfinder-exceptions.yaml"}:
+            continue
         yield path
 
 
