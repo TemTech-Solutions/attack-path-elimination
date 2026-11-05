@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
 
     install_parser = sub.add_parser("install", help="Add a CI hook to another repository")
     install_parser.add_argument("target", type=Path, help="Root of the application repository")
-    install_parser.add_argument("--platform", choices=("github", "gitlab"), default="github")
+    install_parser.add_argument("--platform", choices=("github", "gitlab", "azure", "azure-devops"), default="github")
     install_parser.add_argument("--tool", help="owner/repository or https://github.com/owner/repository")
     install_parser.add_argument("--ref", default=PUBLIC_REF, help="Full commit SHA of this action")
     install_parser.add_argument("--force", action="store_true")
@@ -140,7 +140,11 @@ def _dispatch(args) -> int:
             _print(str(exc))
             return 1
         _print(f"Hook written to {destination}")
-        _print("Push that repository. The next pull request analyzes its own checkout and attaches the report.")
+        if args.platform.lower().replace("_", "-") in {"azure", "azure-devops", "azuredevops"}:
+            _print("In Azure DevOps, create a pipeline from azure-pipelines/attack-paths.yml.")
+            _print("The pipeline publishes attack-path-report. On an Azure Repos pull request it updates one comment when the build service can contribute to pull requests.")
+        else:
+            _print("Push that repository. The next pull request analyzes its own checkout and attaches the report.")
         return 0
     if args.command == "find-path":
         hypothesis = normalize(

@@ -288,6 +288,16 @@ def test_install_hook_writes_into_the_other_repo(tmp_path: Path):
     assert gitlab.name == "attack-paths.gitlab-ci.yml"
     assert "python -m pathfinder analyze ." in gitlab_text
     assert f"fetch --depth 1 origin {PUBLIC_REF}" in gitlab_text
+    azure = install(tmp_path, platform="azure", force=True)
+    azure_text = azure.read_text(encoding="utf-8")
+    published_azure = (Path(__file__).resolve().parents[1] / "install" / "azure" / "attack-paths.yml").read_text(encoding="utf-8")
+    assert azure == tmp_path / "azure-pipelines" / "attack-paths.yml"
+    assert azure_text == published_azure
+    assert f"fetch --depth 1 origin {PUBLIC_REF}" in azure_text
+    assert "artifact: attack-path-report" in azure_text
+    assert "python -m pip install --upgrade pip" in azure_text
+    again = install(tmp_path, platform="azure-devops", force=True)
+    assert again.read_text(encoding="utf-8") == azure_text
     action = (Path(__file__).resolve().parents[1] / "action.yml").read_text(encoding="utf-8")
     assert "python -m pathfinder analyze" in action
     assert "full commit SHA" in action

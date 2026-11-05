@@ -18,7 +18,7 @@ Every scan writes three HTML views of the same snapshot:
 | `graph.html` | The graph. Select an issue and the walk is laid out with the diagnosis and the next change |
 | `threat-model.html` | The same findings grouped by severity, reachability, exploitability, STRIDE, DREAD, or PASTA |
 
-A GitHub Actions run publishes them as the `attack-path-report` artifact and writes the short form into the job summary. On a pull request it updates one comment. A GitLab job publishes the same files as artifacts. A local run writes them under `--out`.
+A GitHub Actions run publishes them as the `attack-path-report` artifact and writes the short form into the job summary. On a pull request it updates one comment. A GitLab job publishes the same files as artifacts. An Azure DevOps pipeline publishes the same artifact and, on an Azure Repos pull request, updates one comment. A local run writes them under `--out`.
 
 ## What a chain means
 
@@ -32,7 +32,7 @@ risk = exposure × privilege × asset × exploitability
 
 Each factor is between 0 and 1. The published score is that product on a 0–100 scale. Critical is 85 and above, High is 70, Medium is 40, and Low is below that.
 
-Path erasure rate is `P_erased / P_eligible`, the measure defined with that OWASP project. The first local run is the snapshot later runs compare against. A later run with the same `--out` folder counts a chain as erased when its narrative is gone. A GitHub or GitLab run is a fresh scan of that commit and does not carry the earlier snapshot.
+Path erasure rate is `P_erased / P_eligible`, the measure defined with that OWASP project. The first local run is the snapshot later runs compare against. A later run with the same `--out` folder counts a chain as erased when its narrative is gone. A GitHub, GitLab, or Azure DevOps run is a fresh scan of that commit and does not carry the earlier snapshot.
 
 ## Built on the OWASP Subtractive Hardening baseline
 
@@ -117,7 +117,7 @@ git push
 The workflow runs on pull requests and on pushes to `main` or `master`. The job checks the application out, then runs:
 
 ```yaml
-uses: TemTech-Solutions/attack-path-elimination@a9c9816bf77e9a86a979ccd1ce80513647491368
+uses: TemTech-Solutions/attack-path-elimination@be1e5ddba0f48bdda8f58887d5b18bcb3dcda508
 ```
 
 That ref is a full commit SHA. The action refuses a branch or a tag before it analyzes anything, because a branch or tag can move after review. The published hook in this repository is rewritten to the new commit when `main` moves. A repository that already committed an older SHA keeps running that commit until someone replaces the workflow.
@@ -136,7 +136,7 @@ Optional inputs, if you call the action yourself instead of copying the hook:
 
 Open **Actions**, then the **Attack paths** run. The summary lists the chains. Download `attack-path-report` and open `report.html`, `graph.html`, and `threat-model.html`.
 
-There is also a local installer: `python -m pathfinder install path\to\repository-to-scan` writes the same GitHub workflow, or a GitLab include with `--platform gitlab`.
+There is also a local installer: `python -m pathfinder install path\to\repository-to-scan` writes the same GitHub workflow. `--platform gitlab` writes the GitLab include. `--platform azure` writes the Azure DevOps pipeline.
 
 ## Integrate with GitLab CI
 
@@ -155,6 +155,34 @@ include:
 ```
 
 The job runs on merge requests and on the default branch. It fetches the same pinned commit from `https://github.com/TemTech-Solutions/attack-path-elimination.git`, installs dependencies after upgrading pip, and analyzes the application checkout. Artifacts are under `attack-paths-report/`: `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
+
+## Integrate with Azure DevOps
+
+From the application repository:
+
+```bash
+mkdir -p azure-pipelines
+curl -fsSL -o azure-pipelines/attack-paths.yml \
+  https://raw.githubusercontent.com/TemTech-Solutions/attack-path-elimination/main/install/azure/attack-paths.yml
+```
+
+PowerShell:
+
+```powershell
+cd path\to\repository-to-scan
+New-Item -ItemType Directory -Force azure-pipelines | Out-Null
+Invoke-WebRequest https://raw.githubusercontent.com/TemTech-Solutions/attack-path-elimination/main/install/azure/attack-paths.yml -OutFile azure-pipelines\attack-paths.yml
+```
+
+Or `python -m pathfinder install path\to\repository-to-scan --platform azure`.
+
+In Azure DevOps, create a pipeline from that file: **Pipelines**, **New pipeline**, select the repository, then **Existing Azure Pipelines YAML file**, and choose `azure-pipelines/attack-paths.yml`. Commit and run it.
+
+The pipeline runs on pull requests and on pushes to `main` or `master`. It checks the application out, fetches the same pinned commit, upgrades pip, and analyzes that checkout. The artifact is `attack-path-report`, and it contains `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
+
+On an Azure Repos pull request, the pipeline updates one comment marked `<!-- pathfinder-attack-paths -->`. That comment needs the build service identity to have permission to contribute to pull requests. If the permission is missing, the artifact is still published. A repository connected from GitHub or GitLab gets the artifact. The comment step runs for Azure Repos.
+
+The hook is `azure-pipelines/attack-paths.yml`, so it does not replace an existing `azure-pipelines.yml`. The analyzer still reads a repository's own `azure-pipelines.yml` as part of the attack graph: triggers, secrets in jobs, and deploy steps.
 
 ## Run it locally
 
@@ -276,6 +304,7 @@ Pull-request comments from the service are posted only when `PATHFINDER_POST_COM
 - `action.yml` is the composite Action other repositories run
 - `install/github/attack-paths.yml` is the workflow those repositories commit
 - `install/gitlab/attack-paths.gitlab-ci.yml` is the GitLab job
+- `install/azure/attack-paths.yml` is the Azure DevOps pipeline
 - `pathfinder/baseline.py` is the control catalog taken from the OWASP Subtractive Hardening baseline
 - `pathfinder/analyze.py` walks the repository
 - `pathfinder/languages.py` and `pathfinder/platform.py` read languages and platforms that have a dedicated parser

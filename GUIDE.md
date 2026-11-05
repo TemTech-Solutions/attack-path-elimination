@@ -90,9 +90,36 @@ The job runs on merge requests and on the default branch, in a `python:3.12` ima
 - `attack-paths-report/pr-comment.md`
 - `attack-paths-report/graph.json`
 
-GitLab CI, like GitHub Actions and Azure Pipelines, is also something the analyzer **reads** when those files are in the repository being scanned. The install hook above is only the GitLab way to **run** the analyzer.
+GitLab CI, GitHub Actions, and Azure Pipelines are also files the analyzer reads when they are in the repository being scanned. The hook above is how GitLab runs the analyzer.
 
-## 4. Scan a local checkout
+## 4. Add the Azure DevOps pipeline
+
+From the application repository:
+
+```bash
+mkdir -p azure-pipelines
+curl -fsSL -o azure-pipelines/attack-paths.yml \
+  https://raw.githubusercontent.com/TemTech-Solutions/attack-path-elimination/main/install/azure/attack-paths.yml
+```
+
+Or `python -m pathfinder install path/to/repository-to-scan --platform azure`.
+
+In Azure DevOps, open **Pipelines**, **New pipeline**, select the repository, choose **Existing Azure Pipelines YAML file**, and set the path to `azure-pipelines/attack-paths.yml`.
+
+The pipeline runs on pull requests and on `main` or `master`, on `ubuntu-latest`, with Python 3.12. It fetches the pinned commit from GitHub, upgrades pip, installs requirements, and analyzes the project directory. The artifact `attack-path-report` is published even when a later step fails, and it contains:
+
+- `report.html`
+- `graph.html`
+- `threat-model.html`
+- `graph-report.md`
+- `pr-comment.md`
+- `graph.json`
+
+On an Azure Repos pull request, the pipeline updates one comment marked `<!-- pathfinder-attack-paths -->` when the build service can contribute to pull requests. The artifact is published either way. A GitHub or GitLab repository built by Azure Pipelines gets the artifact. The comment step is for Azure Repos.
+
+This file does not replace an existing `azure-pipelines.yml`. A repository's own `azure-pipelines.yml` is still read into the attack graph.
+
+## 5. Scan a local checkout
 
 Use this when you want a report on your machine. Python 3.11 or newer. From a clone of this repository:
 
@@ -155,7 +182,7 @@ The same service is the image built from `Dockerfile`. It listens on port 8080.
 
 `GET /api/scorecard` answers only after `POST /api/analyze`. The path must sit inside the directory where the server was started, or inside `PATHFINDER_ALLOWED_ROOT`. A URL is accepted only for `https://github.com`, `https://gitlab.com`, and `https://dev.azure.com`. Add an enterprise host with `PATHFINDER_GIT_HOSTS` (comma-separated). The clone is stored under `data/clones` and is parsed, not executed.
 
-## 5. Read the ranked report
+## 6. Read the ranked report
 
 Open `report.html`. The top of the page is the scorecard for that snapshot:
 
@@ -189,7 +216,7 @@ Confirm each file and line in the repository before you treat a hop as a defect.
 
 When the repository contains both an untrusted deploy path and an application path into cloud credentials, the top of the list can include one stacked chain. That is the same two walks read as one system.
 
-## 6. Read the graph
+## 7. Read the graph
 
 Open `graph.html`. The left rail is every issue, including smaller findings that are not already a full chain. Select one. The canvas lays that walk out from the entry to the last hop. The right panel is the diagnosis, each hop with its file and line, and the next deletion or constraint.
 
@@ -199,7 +226,7 @@ Select a node to list every elimination path through it, the edges that make the
 
 `graph-report.md` lists the god nodes (the components the most edges pass through), the communities, and each chain. `graph.json` is the same snapshot, including `graph.schema_version`.
 
-## 7. Read the threat model
+## 8. Read the threat model
 
 Open `threat-model.html`. The page starts as lenses, not as a dump of every finding.
 
@@ -215,7 +242,7 @@ Select a row to open the walk: file and line, the DREAD factors used by the scor
 
 DREAD here uses the factors already on the walk. Damage follows asset value. Affected users follows exposure. Exploitability is the existing factor. Discoverability follows a public entry. Reproducibility means the walk is present in the files, so a reviewer can find it again. It is not a statement that a request was sent.
 
-## 8. What the scan reads
+## 9. What the scan reads
 
 - Python, with cross-file calls from the AST
 - Java, JavaScript, TypeScript, Go, C#, and PHP routes and sinks
@@ -235,9 +262,9 @@ Directories named `.git`, `node_modules`, `venv`, `.venv`, `__pycache__`, `dist`
 
 Python calls are resolved across files from imports. Other languages contribute routes and sinks from source patterns. If a call name is ambiguous, it is left unlinked. A bare word such as `system`, a placeholder credential, or a cache key is not a finding.
 
-## 9. Measure a later local run
+## 10. Measure a later local run
 
-A GitHub or GitLab run is a fresh scan of that commit. Locally, the first analyze of an `--out` folder is the snapshot later runs compare against. Path erasure rate is `erased / eligible`, the Path Erasure Rate from the [OWASP Subtractive Hardening Top 10](https://github.com/OWASP/OWASP-Subtractive-Hardening-Top-10) baseline, and it is 0 on that first run.
+A GitHub, GitLab, or Azure DevOps run is a fresh scan of that commit. Locally, the first analyze of an `--out` folder is the snapshot later runs compare against. Path erasure rate is `erased / eligible`, the Path Erasure Rate from the [OWASP Subtractive Hardening Top 10](https://github.com/OWASP/OWASP-Subtractive-Hardening-Top-10) baseline, and it is 0 on that first run.
 
 After you delete a path in code, run the same command again with the same `--out` folder. The report compares chain ids with `history.json`:
 
@@ -246,7 +273,7 @@ After you delete a path in code, run the same command again with the same `--out
 
 A chain counts as gone only when its narrative changes or disappears. Renaming a function without removing the edge will usually leave the chain in place.
 
-## 10. Record a false positive
+## 11. Record a false positive
 
 A finding stays while the structural evidence stays. When the remediation team has reviewed a hit and it is a false positive, record it. Later scans leave it out of the paths, the graph, and the threat groups.
 
@@ -269,7 +296,7 @@ system(params[:cmd])
 
 In `threat-model.html`, open **Exceptions** to see the reason and who marked the case.
 
-## 11. Ask whether a specific objective is reachable
+## 12. Ask whether a specific objective is reachable
 
 The composed report answers "which chains does this catalog already know?" A hypothesis answers "can an attacker reach the objective I care about?"
 
@@ -292,7 +319,7 @@ Shipped templates cover credential exposure, secret exposure, AWS privilege esca
 
 The output is the walk, the risk band, the missing controls, and the edge to delete or constrain. The question command maps the sentence onto a start and a target on this machine. It does not send the repository to a model.
 
-## 12. Optional: a webhook on your own server
+## 13. Optional: a webhook on your own server
 
 The GitHub Action is the hook to use for a repository. A self-hosted webhook stays closed until you set a secret, so an open port cannot clone arbitrary repositories.
 
@@ -305,11 +332,11 @@ Point a GitHub webhook at `POST /api/webhooks/github` and set the same secret. T
 
 GitLab uses `GITLAB_WEBHOOK_SECRET` and the header `X-Gitlab-Token`, posted to `/api/webhooks/gitlab`.
 
-## 13. Optional: Neo4j
+## 14. Optional: Neo4j
 
 `graph.cypher` in the local output creates one node per component and the edges the analyzer could prove (`CALLS`, `ROUTES_TO`, `READS`, `FLOWS_TO`, `USES_SECRET`, `DEPLOYS`, `INVOKES`, `TRUSTS`). Review the file, then load it into a database you control. The HTML reports do not require Neo4j.
 
-## 14. What a result is, and what it is not
+## 15. What a result is, and what it is not
 
 A chain means the files contain a connected walk from an entry to a valuable target.
 
