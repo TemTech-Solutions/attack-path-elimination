@@ -127,12 +127,20 @@ function drawLenses() {
   notes.textContent = "Review notes";
   notes.addEventListener("click", () => { group = "__notes"; openId = ""; drawGroups(); drawPanel(); });
   root.appendChild(notes);
+  if ((model.suppressed || []).length) {
+    const exceptions = document.createElement("button");
+    exceptions.type = "button";
+    exceptions.className = "quiet";
+    exceptions.textContent = "Exceptions (" + model.suppressed.length + ")";
+    exceptions.addEventListener("click", () => { group = "__exceptions"; openId = ""; drawGroups(); drawPanel(); });
+    root.appendChild(exceptions);
+  }
 }
 
 function drawGroups() {
   const root = document.getElementById("groups");
   root.textContent = "";
-  if (group === "__scope" || group === "__notes") return;
+  if (group === "__scope" || group === "__notes" || group === "__exceptions") return;
   const present = new Map();
   model.threats.forEach((threat) => {
     valuesOf(threat).forEach((label) => present.set(label, (present.get(label) || 0) + 1));
@@ -159,6 +167,7 @@ function drawPanel() {
   root.textContent = "";
   if (group === "__scope") return drawScope(root);
   if (group === "__notes") return drawNotes(root);
+  if (group === "__exceptions") return drawExceptions(root);
   if (!group) {
     add(root, "p", "Select a group. A click lists only those findings, with why each is prioritized, the effect, and the next change.").className = "muted";
     return;
@@ -206,7 +215,8 @@ function detail(threat) {
   add(box, "p", "DREAD · damage " + show(dread.asset) + " · reproducibility " + (threat.reachability === "Local signal" ? "local" : "walk is in the files") + " · exploitability " + show(dread.exploitability) + " · affected users " + show(dread.exposure) + " · discoverability " + (threat.reachability === "Reachable from an entry" ? "entry is exposed" : "not an exposed entry"));
   if ((threat.stride || []).length) add(box, "p", "STRIDE · " + threat.stride.join(", "));
   if (threat.pasta) add(box, "p", "PASTA · " + threat.pasta);
-  if ((threat.missing_controls || []).length) add(box, "p", "Missing controls: " + threat.missing_controls.join(", "));
+  const marked = (threat.hops || []).find((hop) => hop.fingerprint);
+  if (marked) add(box, "p", "Exception id: " + marked.fingerprint + " · " + (marked.file || "") + (marked.line ? ":" + marked.line : ""));
   if ((threat.hops || []).length) {
     add(box, "p", "Walk");
     const list = document.createElement("ul");
@@ -238,6 +248,20 @@ function drawScope(root) {
   model.assets.forEach((asset) => {
     const place = asset.file ? asset.file + (asset.line ? ":" + asset.line : "") : asset.kind;
     add(root, "p", asset.name + " · " + asset.kind + " · " + place);
+  });
+}
+
+function drawExceptions(root) {
+  add(root, "h2", "Exceptions");
+  add(root, "p", "These cases were marked false positives by the remediation team. They are not in the severity, STRIDE, DREAD, or PASTA groups.").className = "muted";
+  (model.suppressed || []).forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "card";
+    const place = item.file ? item.file + (item.line ? ":" + item.line : "") : "";
+    add(card, "p", [item.rule, item.title, place].filter(Boolean).join(" · "));
+    add(card, "p", "Reason: " + (item.reason || ""));
+    add(card, "p", "Marked by " + (item.by || "remediation") + (item.fingerprint ? " · " + item.fingerprint : ""));
+    root.appendChild(card);
   });
 }
 

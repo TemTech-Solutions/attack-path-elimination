@@ -38,6 +38,7 @@ from pathfinder.platform import (
     looks_like_cloudformation,
 )
 from pathfinder.adapt import adapt_repository
+from pathfinder.exceptions import apply_exceptions
 from pathfinder.scoring import score_path
 from pathfinder.universal import analyze_unclaimed, deepen
 
@@ -135,7 +136,9 @@ def analyze(target: Path) -> dict:
     connect_runtime(model)
     _materialize_polyglot_sql(model)
     deepen(model, root)
+    apply_exceptions(model)
     adapt_repository(model)
+    apply_exceptions(model)
     paths = build_paths(model)
     packaged = _package(model, paths)
     from pathfinder.query import attach_search
@@ -235,6 +238,7 @@ def _package(model: RepoModel, paths: list[dict]) -> dict:
         "parse_errors": model.parse_errors,
         "trend": None,
         "adaptation": getattr(model, "adaptation", None),
+        "suppressed": list(getattr(model, "suppressed", []) or []),
     }
     return attach_graph(packaged)
 

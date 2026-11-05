@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from pathfinder.analyze import analyze, apply_history
+from pathfinder.exceptions import EXCEPTIONS_FILE, load_exceptions, record_exception
 from pathfinder.install import PUBLIC_REF, InstallError, install
 from pathfinder.query import (
     FRAMEWORKS,
@@ -70,6 +71,17 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("hunts", help="List kill-chain templates")
     sub.add_parser("frameworks", help="List the threat-model frameworks every scan reviews")
+
+    except_parser = sub.add_parser("except", help="Record a remediation false positive so later scans ignore that case")
+    except_parser.add_argument("target", type=Path)
+    except_parser.add_argument("--rule", required=True)
+    except_parser.add_argument("--file", required=True)
+    except_parser.add_argument("--line", type=int, required=True)
+    except_parser.add_argument("--reason", required=True)
+    except_parser.add_argument("--by", default="remediation")
+
+    list_parser = sub.add_parser("exceptions", help="List false-positive exceptions recorded for a repository")
+    list_parser.add_argument("target", type=Path)
 
     ask_parser = sub.add_parser("ask", help="Turn a plain question into a start and a target")
     ask_parser.add_argument("target", type=Path)
@@ -162,6 +174,26 @@ def _dispatch(args) -> int:
     if args.command == "frameworks":
         for item in FRAMEWORKS:
             _print(f"{item['name']}: {item['focus']}")
+        return 0
+    if args.command == "except":
+        try:
+            path = record_exception(args.target, rule=args.rule, file=args.file, line=args.line, reason=args.reason, by=args.by)
+        except ValueError as exc:
+            _print(str(exc))
+            return 2
+        _print(f"Recorded false positive in {path}")
+        return 0
+    if args.command == "exceptions":
+        entries, error = load_exceptions(args.target)
+        if error:
+            _print(error)
+            return 2
+        if not entries:
+            _print(f"No false-positive exceptions in {args.target / EXCEPTIONS_FILE}")
+            return 0
+        for item in entries:
+            place = f"{item['file']}:{item['line']}" if item.get("line") else item.get("file") or item.get("fingerprint")
+            _print(f"{item['rule']} {place} — {item['reason']}")
         return 0
     if args.command == "ask":
         return _run_search(args.target, [translate(args.question)], args.out)

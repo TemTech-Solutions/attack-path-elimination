@@ -59,18 +59,39 @@ AUTH = re.compile(
 )
 ANON = re.compile(r"AllowAnonymous|AllowAny|csrf_exempt|permitAll|auth\s*[:=]\s*false|\[Authorize\(Anonymous\)\]", re.I)
 EXEC = re.compile(
-    r"\b(eval|exec|system|popen|subprocess|shell_exec|passthru|os\.system|child_process|Runtime\.getRuntime|Process\.Start|exec\.Command|syscall\.Exec|shell\s*=\s*True|pickle\.loads|unserialize|BinaryFormatter|readObject|ObjectInputStream|Marshal\.load|yaml\.load\s*\()\b"
+    r"(?:"
+    r"\b(?:eval|exec|system|popen|shell_exec|passthru|unserialize)\s*\("
+    r"|os\.system\s*\("
+    r"|subprocess\.(?:call|run|Popen|check_output|getoutput)\s*\("
+    r"|shell\s*=\s*True"
+    r"|pickle\.loads\s*\("
+    r"|yaml\.load\s*\("
+    r"|Runtime\.getRuntime\s*\("
+    r"|Process\.Start\s*\("
+    r"|exec\.Command\s*\("
+    r"|syscall\.Exec\s*\("
+    r"|child_process\.(?:exec|spawn)"
+    r"|BinaryFormatter"
+    r"|ObjectInputStream"
+    r"|\breadObject\s*\("
+    r"|Marshal\.load\s*\("
+    r")",
+    re.I,
 )
 SQL_BUILD = re.compile(
     r"\b(SELECT|INSERT|UPDATE|DELETE)\b.{0,160}(\+|%s|%\{|\$\{|\.format\s*\(|f[\"']|\$[A-Za-z_])",
     re.I,
 )
 HTTP_VAR = re.compile(
-    r"\b(fetch|axios|requests\.(get|post|put|delete)|http\.get|got|openStream|WebClient|RestTemplate|curl_exec|httpx\.(get|post)|URL)\s*\(\s*[A-Za-z_]",
+    r"\b(?:fetch|axios|requests\.(?:get|post|put|delete)|http\.get|got|openStream|WebClient|RestTemplate|curl_exec|httpx\.(?:get|post)|URL)\s*\(\s*(?:request|req|params|input|query|body|args|url|uri|callback|target|user|host|dest)\b",
     re.I,
 )
 SECRET_ASSIGN = re.compile(
     r"""\b(?P<name>[A-Za-z_][A-Za-z0-9_]*(?:secret|password|passwd|token|api[_-]?key|apikey|private[_-]?key|access[_-]?key|credential|_key)s?)\b\s*[:=]\s*(?P<value>['\"][^'\"]+['\"]|\S+)""",
+    re.I,
+)
+PLACEHOLDER = re.compile(
+    r"placeholder|changeme|example|your[-_]?token|todo|dummy|fake|not[-_]?a[-_]?secret|xxx+|redacted|sample",
     re.I,
 )
 SCHEMA_KEYS = {"primary_key", "foreign_key", "sort_key", "partition_key"}
@@ -281,6 +302,8 @@ def _signals(model: RepoModel, rel: str, text: str, language: str, *, config_onl
         for theme, rule, exposure, privilege, asset, exploit, pattern, title, recommendation in SIGNALS:
             if config_only and theme in {"rce", "sqli", "ssrf"}:
                 continue
+            if title.startswith("Service listens") and not re.search(r"bind|listen|host|addr|interface|INADDR", raw, re.I):
+                continue
             if title.startswith("Weak hash") and not re.search(r"password|secret|token|session", raw, re.I):
                 continue
             if title.startswith("Non-cryptographic") and not re.search(r"password|secret|token|session", raw, re.I):
@@ -323,7 +346,7 @@ def _secrets(model: RepoModel, rel: str, text: str, language: str) -> None:
         if value.strip("\"'") == "":
             continue
         name = match.group("name")
-        if name.lower() in SCHEMA_KEYS:
+        if name.lower() in SCHEMA_KEYS or not _secret_value_ok(name, value):
             continue
         secret = model.node("secret", name, lane="credential", unique=True, file=rel, line=index, language=language)
         anchor = _anchor(model, rel, index, language, name)
@@ -344,6 +367,16 @@ def _secrets(model: RepoModel, rel: str, text: str, language: str) -> None:
             recommendation="Remove the literal credential from source. Read it from the environment or a secret store at runtime.",
         )
         _remember(model, name, rel, index, secret)
+
+
+def _secret_value_ok(name: str, value: str) -> bool:
+    inner = value.strip("\"'").strip()
+    if PLACEHOLDER.search(inner) or len(inner) < 8 or re.fullmatch(r"[A-Za-z]+", inner):
+        return False
+    weak_name = name.lower().endswith("_key") and not re.search(r"secret|password|token|credential|api|private|access", name, re.I)
+    if weak_name and not re.search(r"\d", inner):
+        return False
+    return True
 
 
 def _observe(model, **observation) -> None:

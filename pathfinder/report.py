@@ -46,6 +46,10 @@ def pr_comment(result: dict) -> str:
             lines.append(f"- {item['name']}: {item['found']} path(s), {top['band']} — {' → '.join(top['labels'][:6])}")
         lines.append("")
     lines.append("Static review only. The change to make is deletion or constraint of the path, not a new alert.")
+    suppressed = result.get("suppressed") or []
+    if suppressed:
+        lines.append("")
+        lines.append(f"{len(suppressed)} finding(s) omitted by remediation false-positive exceptions.")
     return "\n".join(lines)
 
 

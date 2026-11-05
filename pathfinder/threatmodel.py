@@ -12,6 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from pathfinder.agents import _frameworks
+from pathfinder.exceptions import fingerprint
 from pathfinder.query import FRAMEWORKS, roles_for
 
 ASSET_KINDS = {"secret", "datastore", "bucket", "cloud", "endpoint", "trigger", "workload", "container"}
@@ -80,6 +81,18 @@ def build_threat_model(result: dict) -> dict:
         "assets": assets,
         "threats": threats,
         "adaptation": result.get("adaptation") or {},
+        "suppressed": [
+            {
+                "fingerprint": item.get("fingerprint") or "",
+                "rule": item.get("rule") or "",
+                "file": item.get("file"),
+                "line": item.get("line"),
+                "title": item.get("title") or "",
+                "reason": item.get("reason") or "",
+                "by": item.get("by") or "remediation",
+            }
+            for item in result.get("suppressed") or []
+        ],
         "notes": [
             {
                 "agent": note.get("agent") or "",
@@ -176,6 +189,7 @@ def _from_path(path: dict, name: str, result: dict, question: str = "") -> dict:
                 "line": hop.get("line"),
                 "evidence": hop.get("evidence") or "",
                 "rule": hop.get("rule") or "",
+                "fingerprint": fingerprint(str(hop.get("rule") or ""), str(hop.get("file") or ""), str(hop.get("evidence") or "")) if hop.get("rule") else "",
             }
         )
     remove = list(path.get("recommendations") or path.get("remove") or [])

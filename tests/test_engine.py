@@ -346,7 +346,7 @@ def test_every_language_keeps_a_diagnosable_path(tmp_path: Path):
     (tmp_path / "admin.rb").write_text(
         """
         class Admin
-          custodian_key = "placeholder-value"
+          custodian_key = "k9s-local-7f3a2c"
           def custodian_wrap
           end
           get '/admin/refund' do
@@ -386,7 +386,7 @@ def test_every_language_keeps_a_diagnosable_path(tmp_path: Path):
         encoding="utf-8",
     )
     (tmp_path / "runner.c").write_text("void admin_run(char *cmd) { system(cmd); }\n", encoding="utf-8")
-    (tmp_path / ".env").write_text("custodian_key=placeholder-value\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("custodian_key=k9s-local-7f3a2c\n", encoding="utf-8")
     result = analyze(tmp_path)
     languages = {node.get("language") for node in result["nodes"]}
     assert {"ruby", "rust", "kotlin", "c"} <= languages
@@ -404,6 +404,37 @@ def test_every_language_keeps_a_diagnosable_path(tmp_path: Path):
     threat = render_threat_html(result)
     assert "Next step" in threat
     assert any(item.get("rule") == "APP05" for item in result["findings"])
+
+
+def test_remediation_false_positives_are_left_out(tmp_path: Path):
+    from pathfinder.cli import main
+    from pathfinder.threatmodel import build_threat_model
+
+    (tmp_path / "note.py").write_text('message = "the system is down"\nbind = "0.0.0.0"\n', encoding="utf-8")
+    (tmp_path / "sample.env").write_text("token=placeholder-value\ncache_key=user-session\n", encoding="utf-8")
+    (tmp_path / "admin.rb").write_text("get '/admin/run' do\n  system(params[:cmd])\nend\n", encoding="utf-8")
+    (tmp_path / "marked.rb").write_text(
+        "# pathfinder: false-positive: sandbox helper, not production\nget '/admin/tool' do\n  system(params[:cmd])\nend\n",
+        encoding="utf-8",
+    )
+    first = analyze(tmp_path)
+    assert not any("the system is down" in (item.get("evidence") or "") for item in first["findings"])
+    assert not any(item.get("file") == "sample.env" for item in first["findings"])
+    assert any("0.0.0.0" in (item.get("evidence") or "") for item in first["findings"])
+    hit = next(item for item in first["findings"] if item.get("rule") == "APP05" and item.get("file") == "admin.rb")
+    assert main(["except", str(tmp_path), "--rule", "APP05", "--file", "admin.rb", "--line", str(hit["line"]), "--reason", "Approved test double for the admin console", "--by", "remediation"]) == 0
+    second = analyze(tmp_path)
+    assert not any(item.get("rule") == "APP05" and item.get("file") == "admin.rb" for item in second["findings"])
+    assert any(item.get("file") == "admin.rb" and item.get("rule") == "APP05" for item in second["suppressed"])
+    assert not any(item.get("rule") == "APP05" and item.get("file") == "marked.rb" for item in second["findings"])
+    assert any(item.get("file") == "marked.rb" for item in second["suppressed"])
+    modeled = build_threat_model(second)
+    assert modeled["suppressed"]
+    assert not any((item.get("file") == "admin.rb" or "admin.rb" in str(item.get("hops"))) and item.get("name") == "APP05" for item in modeled["threats"])
+    threat = render_threat_html(second)
+    assert "Exceptions" in threat
+    assert "Approved test double for the admin console" in threat
+    assert "sandbox helper, not production" in threat
 
 
 def test_score_bands():
