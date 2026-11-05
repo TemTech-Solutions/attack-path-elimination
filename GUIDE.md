@@ -43,7 +43,7 @@ Push the workflow to `main` or `master`. It also runs when a pull request is ope
 The installed job does two things. It checks out the application repository with `actions/checkout` pinned to a full commit SHA. It then runs:
 
 ```yaml
-uses: TemTech-Solutions/attack-path-elimination@93268821c88ffe1e5b6bab91e493c3c8ed9187b9
+uses: TemTech-Solutions/attack-path-elimination@2470dabb0a81f0e193bb44539dd0bde75719b7d8
 ```
 
 That value is a full commit SHA. The action refuses a branch or a tag, so a workflow that says `@main` or `@v1` fails before it analyzes anything. A push to `main` of this repository rewrites the published hook to that commit. A repository that already committed an older SHA keeps running that commit until someone copies the new hook.
