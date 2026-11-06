@@ -117,7 +117,7 @@ git push
 The workflow runs on pull requests and on pushes to `main` or `master`. The job checks the application out, then runs:
 
 ```yaml
-uses: TemTech-Solutions/attack-path-elimination@93268821c88ffe1e5b6bab91e493c3c8ed9187b9
+uses: TemTech-Solutions/attack-path-elimination@0cc6d0790e6951836e741601fe7e003675ee647d
 ```
 
 That ref is a full commit SHA. The action refuses a branch or a tag before it analyzes anything, because a branch or tag can move after review. The published hook in this repository is rewritten to the new commit when `main` moves. A repository that already committed an older SHA keeps running that commit until someone replaces the workflow.
