@@ -38,7 +38,7 @@ from pathfinder.platform import (
     looks_like_cloudformation,
 )
 from pathfinder.adapt import adapt_repository
-from pathfinder.exceptions import apply_exceptions
+from pathfinder.exceptions import apply_exceptions, path_is_excepted
 from pathfinder.scoring import score_path
 from pathfinder.universal import analyze_unclaimed, deepen
 
@@ -140,6 +140,8 @@ def analyze(target: Path) -> dict:
     adapt_repository(model)
     apply_exceptions(model)
     paths = build_paths(model)
+    suppressed = list(getattr(model, "suppressed", []) or [])
+    paths = [path for path in paths if not path_is_excepted(path, suppressed)]
     packaged = _package(model, paths)
     from pathfinder.query import attach_search
 

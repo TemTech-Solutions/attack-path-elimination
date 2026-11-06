@@ -21,6 +21,19 @@ from pathfinder.model import RepoModel
 DIM = 48
 PROFILE = ".pathfinder/environment.json"
 MAX_PROMOTED = 40
+FP_SEEDS = (
+    "example",
+    "dummy",
+    "placeholder",
+    "changeme",
+    "fixture",
+    "mock",
+    "sample",
+    "lorem",
+    "fake",
+    "stub",
+    "notasecret",
+)
 
 SEEDS = {
     "credential": ("password", "secret", "api_key", "apikey", "token", "private_key", "credential", "session"),
@@ -50,13 +63,16 @@ def adapt_repository(model: RepoModel) -> dict:
     contextual = _contextual(model, confirmed)
     for label, text in contextual:
         state.observe(label, text, weight=0.45)
-    promoted = _promote(model, state, contextual)
+    fp_vector = _false_positive_vector(model)
+    promoted = _promote(model, state, contextual, fp_vector)
+    held = _hold_learned_false_positives(model, state, fp_vector)
     summary = state.export(previous, promoted, _languages(model))
     _save(path, summary)
     model.adaptation = {
         "scans": summary["scans"],
         "languages": summary["languages"],
         "promoted": len(promoted),
+        "held": held,
         "thresholds": summary["thresholds"],
         "method": "Local centroid classifier on identifier trigrams, retrained from this repository and blended with the previous scan of this environment.",
     }
@@ -147,7 +163,76 @@ def features(text: str) -> list[float]:
     return vector
 
 
-def _promote(model: RepoModel, state: CentroidState, contextual: list[tuple[str, str]]) -> list[dict]:
+def _false_positive_vector(model: RepoModel) -> list[float]:
+    """Centroid of placeholder names plus exceptions this repository already accepted."""
+    total = [0.0] * DIM
+    weight = 0.0
+    texts = list(FP_SEEDS)
+    for item in getattr(model, "suppressed", []) or []:
+        evidence = item.get("evidence") or ""
+        title = item.get("title") or ""
+        if evidence:
+            texts.append(str(evidence)[:80])
+        if title:
+            texts.append(str(title)[:80])
+    for text in texts:
+        vector = features(text)
+        if not any(vector):
+            continue
+        for index, value in enumerate(vector):
+            total[index] += value
+        weight += 1.0
+    if weight <= 0:
+        return [0.0] * DIM
+    raw = [value / weight for value in total]
+    norm = sum(value * value for value in raw) ** 0.5
+    if norm == 0:
+        return raw
+    return [value / norm for value in raw]
+
+
+def _looks_false_positive(text: str, state: CentroidState, fp_vector: list[float]) -> bool:
+    """A learned name is held when it is closer to accepted false positives than to a real class."""
+    if not text or not any(fp_vector):
+        return False
+    fp_score = _cosine(features(text), fp_vector)
+    scores = state.score(text)
+    best = max(scores.values()) if scores else 0.0
+    return fp_score >= 0.42 and fp_score >= best
+
+
+def _hold_learned_false_positives(model: RepoModel, state: CentroidState, fp_vector: list[float]) -> int:
+    kept = []
+    held = 0
+    suppressed = list(getattr(model, "suppressed", []) or [])
+    for observation in model.observations:
+        if not observation.get("learned"):
+            kept.append(observation)
+            continue
+        text = f"{observation.get('evidence') or ''} {observation.get('title') or ''}"
+        if not _looks_false_positive(text, state, fp_vector):
+            kept.append(observation)
+            continue
+        suppressed.append(
+            {
+                "fingerprint": "",
+                "rule": observation.get("rule") or "",
+                "file": observation.get("file"),
+                "line": observation.get("line"),
+                "title": observation.get("title") or "",
+                "evidence": observation.get("evidence") or "",
+                "reason": "Local learner: this name matches accepted false positives in this repository more closely than a confirmed finding.",
+                "by": "local-learner",
+                "node_id": observation.get("node_id"),
+            }
+        )
+        held += 1
+    model.observations = kept
+    model.suppressed = suppressed
+    return held
+
+
+def _promote(model: RepoModel, state: CentroidState, contextual: list[tuple[str, str]], fp_vector: list[float]) -> list[dict]:
     shared: dict[tuple[str, str], set[str]] = defaultdict(set)
     for label, text in contextual:
         shared[label].update(token for token in _tokens(text) if len(token) >= 6)
@@ -172,6 +257,8 @@ def _promote(model: RepoModel, state: CentroidState, contextual: list[tuple[str,
         scores = state.score(name)
         label = max(scores, key=scores.get)
         score = scores[label]
+        if _looks_false_positive(name, state, fp_vector):
+            continue
         tokens = set(_tokens(name))
         same_file = node.get("file")
         token_hit = ""

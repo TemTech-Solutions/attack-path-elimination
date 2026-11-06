@@ -1,6 +1,6 @@
 # Step-by-step guide
 
-This guide is how to run [TemTech-Solutions/attack-path-elimination](https://github.com/TemTech-Solutions/attack-path-elimination) and how to read the result. The product overview is in [README.md](README.md).
+[README.md](README.md) answers what [TemTech-Solutions/attack-path-elimination](https://github.com/TemTech-Solutions/attack-path-elimination) is for. This guide answers the next questions a team asks once they decide to run it: where the result shows up, how to read each page, and how to accept one false positive without hiding the rest of the file.
 
 **The tool is built on the baseline published by the [OWASP Subtractive Hardening Top 10](https://github.com/OWASP/OWASP-Subtractive-Hardening-Top-10).** Rule IDs such as APP05, C01, and S01 are control IDs from that project. The recommended change is deletion of the edge, then a constraint when the edge cannot disappear. That order is the project's hierarchy of efficacy. Path erasure rate, `P_erased / P_eligible`, is the measure that project uses. This repository applies that baseline to a repository snapshot. It is not an OWASP Foundation project, and the upstream documents remain the standard.
 
@@ -8,7 +8,7 @@ The scan only reads source, pipeline, and infrastructure files. It does not inst
 
 The application you want to scan stays in its own repository. The analyzer is downloaded at job time, or run from a local clone of this repository.
 
-## 1. Add the GitHub Action
+## 1. How do I add this to GitHub?
 
 **Easy install and testing:** open [TemTech Attack Path](https://github.com/apps/temtech-attack-path) and install the GitHub App. Sign in as the account that owns the repositories, then choose **All repositories** or **Only select repositories**. Use that page to try the app on the repositories you pick. The private key stays with the app owner. The workflow below is what runs the scan.
 
@@ -54,18 +54,18 @@ The job needs `contents: read`. Pull-request comments also need `pull-requests: 
 
 To keep the artifact and skip the comment, call the action with `comment: "false"`.
 
-## 2. Read the GitHub result
+## 2. What do I read in the pipeline?
 
-Open the repository on GitHub and go to **Actions**. Open the **Attack paths** run.
+The log is the work queue. The HTML artifact is the full review. Open the repository on GitHub and go to **Actions**. Open the **Attack paths** run.
 
-- The log and the run summary list the work queue: critical paths, high paths, and the medium walks that connect an entry to an asset. Each one shows the file, the line, and what to remove. Critical and high walks are file annotations on the run.
+- The log and the run summary list the work queue: critical paths, high paths, the medium walks that connect an entry to an asset, and the threat-model issues that are not already one of those hops. Each one shows the file, the line, and what to remove. Critical and high walks are file annotations on the run. A recorded exception removes that one issue from the attack paths and from the threat model. The local learner holds back a learned name when it matches false positives this repository already accepted.
 - Download the `attack-path-report` artifact.
 - Open `report.html` for the ranked chains, `graph.html` for the graph, and `threat-model.html` for the grouped threat model. Those pages keep the full review, including signals below the work queue.
 - If the run came from a pull request, the same short summary is posted as one comment. Later runs update that comment. The comment is marked `<!-- pathfinder-attack-paths -->`.
 
 The HTML files open in a browser. They do not need the Python process to stay running.
 
-## 3. Add the GitLab job
+## 3. How do I add this to GitLab?
 
 From the application repository:
 
@@ -94,7 +94,7 @@ The job runs on merge requests and on the default branch, in a `python:3.12` ima
 
 GitLab CI, GitHub Actions, and Azure Pipelines are also files the analyzer reads when they are in the repository being scanned. The hook above is how GitLab runs the analyzer.
 
-## 4. Add the Azure DevOps pipeline
+## 4. How do I add this to Azure DevOps?
 
 From the application repository:
 
@@ -121,7 +121,7 @@ On an Azure Repos pull request, the pipeline updates one comment marked `<!-- pa
 
 This file does not replace an existing `azure-pipelines.yml`. A repository's own `azure-pipelines.yml` is still read into the attack graph.
 
-## 5. Scan a local checkout
+## 5. How do I scan a checkout on my machine?
 
 Use this when you want a report on your machine. Python 3.11 or newer. From a clone of this repository:
 
@@ -184,7 +184,7 @@ The same service is the image built from `Dockerfile`. It listens on port 8080.
 
 `GET /api/scorecard` answers only after `POST /api/analyze`. The path must sit inside the directory where the server was started, or inside `PATHFINDER_ALLOWED_ROOT`. A URL is accepted only for `https://github.com`, `https://gitlab.com`, and `https://dev.azure.com`. Add an enterprise host with `PATHFINDER_GIT_HOSTS` (comma-separated). The clone is stored under `data/clones` and is parsed, not executed.
 
-## 6. Read the ranked report
+## 6. How do I read the ranked report?
 
 Open `report.html`. The top of the page is the scorecard for that snapshot:
 
@@ -218,7 +218,7 @@ Confirm each file and line in the repository before you treat a hop as a defect.
 
 When the repository contains both an untrusted deploy path and an application path into cloud credentials, the top of the list can include one stacked chain. That is the same two walks read as one system.
 
-## 7. Read the graph
+## 7. How do I read the graph?
 
 Open `graph.html`. The left rail is every issue, including smaller findings that are not already a full chain. Select one. The canvas lays that walk out from the entry to the last hop. The right panel is the diagnosis, each hop with its file and line, and the next deletion or constraint.
 
@@ -228,9 +228,9 @@ Select a node to list every elimination path through it, the edges that make the
 
 `graph-report.md` lists the god nodes (the components the most edges pass through), the communities, and each chain. `graph.json` is the same snapshot, including `graph.schema_version`.
 
-## 8. Read the threat model
+## 8. How do I read the threat model?
 
-Open `threat-model.html`. The page starts as lenses, not as a dump of every finding.
+The threat model is the same snapshot as the attack paths, read through the framework you already use. An exception that removed an issue from the paths also removes it from these groups. Open `threat-model.html`. The page starts as lenses, not as a dump of every finding.
 
 Choose **Severity**, **Reachability**, **Exploitability**, **STRIDE**, **DREAD**, or **PASTA**. Then choose a group. If Critical says `Critical (4)`, that click lists those four findings and nothing else. Each row has:
 
@@ -244,7 +244,7 @@ Select a row to open the walk: file and line, the DREAD factors used by the scor
 
 DREAD here uses the factors already on the walk. Damage follows asset value. Affected users follows exposure. Exploitability is the existing factor. Discoverability follows a public entry. Reproducibility means the walk is present in the files, so a reviewer can find it again. It is not a statement that a request was sent.
 
-## 9. What the scan reads
+## 9. Which files did this scan open?
 
 - Python, with cross-file calls from the AST
 - Java, JavaScript, TypeScript, Go, C#, and PHP routes and sinks
@@ -264,7 +264,7 @@ Directories named `.git`, `node_modules`, `venv`, `.venv`, `__pycache__`, `dist`
 
 Python calls are resolved across files from imports. Other languages contribute routes and sinks from source patterns. If a call name is ambiguous, it is left unlinked. A bare word such as `system`, a placeholder credential, or a cache key is not a finding.
 
-## 10. Measure a later local run
+## 10. How do I measure whether a path is gone?
 
 A GitHub, GitLab, or Azure DevOps run is a fresh scan of that commit. Locally, the first analyze of an `--out` folder is the snapshot later runs compare against. Path erasure rate is `erased / eligible`, the Path Erasure Rate from the [OWASP Subtractive Hardening Top 10](https://github.com/OWASP/OWASP-Subtractive-Hardening-Top-10) baseline, and it is 0 on that first run.
 
@@ -275,7 +275,7 @@ After you delete a path in code, run the same command again with the same `--out
 
 A chain counts as gone only when its narrative changes or disappears. Renaming a function without removing the edge will usually leave the chain in place.
 
-## 11. Record a false positive
+## 11. How do I accept one false positive?
 
 A finding stays while the structural evidence stays. When the remediation team has reviewed a hit and it is a false positive, record it in the repository that runs the action. The TemTech repository does not keep that list.
 
@@ -310,7 +310,7 @@ The next run reads the committed file from the checkout and leaves that case out
 
 In `threat-model.html`, open **Exceptions** to see the reason and who marked the case.
 
-## 12. Ask whether a specific objective is reachable
+## 12. How do I ask whether one objective is reachable?
 
 The composed report answers "which chains does this catalog already know?" A hypothesis answers "can an attacker reach the objective I care about?"
 
@@ -333,7 +333,7 @@ Shipped templates cover credential exposure, secret exposure, AWS privilege esca
 
 The output is the walk, the risk band, the missing controls, and the edge to delete or constrain. The question command maps the sentence onto a start and a target on this machine. It does not send the repository to a model.
 
-## 13. Optional: a webhook on your own server
+## 13. How do I run a webhook on my own server?
 
 The GitHub Action is the hook to use for a repository. A self-hosted webhook stays closed until you set a secret, so an open port cannot clone arbitrary repositories.
 
@@ -346,13 +346,13 @@ Point a GitHub webhook at `POST /api/webhooks/github` and set the same secret. T
 
 GitLab uses `GITLAB_WEBHOOK_SECRET` and the header `X-Gitlab-Token`, posted to `/api/webhooks/gitlab`.
 
-## 14. Optional: Neo4j
+## 14. When would I load this into Neo4j?
 
 `graph.cypher` in the local output creates one node per component and the edges the analyzer could prove (`CALLS`, `ROUTES_TO`, `READS`, `FLOWS_TO`, `USES_SECRET`, `DEPLOYS`, `INVOKES`, `TRUSTS`). Review the file, then load it into a database you control. The HTML reports do not require Neo4j.
 
-## 15. What a result is, and what it is not
+## 15. What should I believe after I read the report?
 
-A chain means the files contain a connected walk from an entry to a valuable target.
+Believe the file and the line, then the edge the report tells you to delete. A chain means the files contain a connected walk from an entry to a valuable target.
 
 Confirm the file and line before you treat a hop as a defect. Python uses the AST. The languages with a dedicated parser contribute routes and sinks from source patterns. Every other program is read by the structural pass. A local model learns names this repository already confirmed and carries them to the next scan.
 

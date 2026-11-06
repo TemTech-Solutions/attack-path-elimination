@@ -166,6 +166,7 @@ def test_html_and_comment_carry_the_chain(payment_repo: Path):
     comment = pr_comment(result)
     assert "Auth bypass" in comment
     assert "Static review only" in comment
+    assert "Threat model" in comment
     assert "graph.html" in html
     graph = result["graph"]
     assert graph["schema_version"] == 1
@@ -474,11 +475,45 @@ def test_remediation_false_positives_are_left_out(tmp_path: Path):
     assert any(item.get("file") == "marked.rb" for item in second["suppressed"])
     modeled = build_threat_model(second)
     assert modeled["suppressed"]
-    assert not any((item.get("file") == "admin.rb" or "admin.rb" in str(item.get("hops"))) and item.get("name") == "APP05" for item in modeled["threats"])
+    assert not any(
+        hop.get("rule") == "APP05" and str(hop.get("file") or "").endswith("admin.rb")
+        for item in modeled["threats"]
+        for hop in item.get("hops") or []
+    )
+    assert not any(
+        hop.get("rule") == "APP05" and str(hop.get("file") or "").endswith("admin.rb")
+        for path in second["paths"]
+        for hop in path.get("hops") or []
+    )
+    assert "Threat model" in pr_comment(second)
     threat = render_threat_html(second)
     assert "Exceptions" in threat
     assert "Approved test double for the admin console" in threat
     assert "sandbox helper, not production" in threat
+
+
+def test_local_learner_holds_placeholder_names(tmp_path: Path):
+    from pathfinder.threatmodel import build_threat_model
+
+    (tmp_path / "admin.rb").write_text(
+        "class Admin\n"
+        "  def example_placeholder_fixture\n"
+        "  end\n"
+        "  get '/admin/run' do\n"
+        "    system(params[:cmd])\n"
+        "  end\n"
+        "end\n",
+        encoding="utf-8",
+    )
+    result = analyze(tmp_path)
+    assert any(item.get("rule") == "APP05" and item.get("file") == "admin.rb" for item in result["findings"])
+    assert not any("example_placeholder_fixture" in (item.get("evidence") or "") for item in result["findings"])
+    modeled = build_threat_model(result)
+    assert not any(
+        "example_placeholder_fixture" in (hop.get("evidence") or "")
+        for item in modeled["threats"]
+        for hop in item.get("hops") or []
+    )
 
 
 def test_score_bands():

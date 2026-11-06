@@ -348,6 +348,37 @@ def _line(value) -> int | None:
     return number if number > 0 else None
 
 
+def hop_is_excepted(hop: dict, suppressed: list[dict]) -> bool:
+    """A hop matches one specific exception: same fingerprint, or the same rule and file."""
+    if not suppressed or not hop:
+        return False
+    rule = _rule(hop.get("rule"))
+    file = _normalize_file(hop.get("file"))
+    line = _line(hop.get("line"))
+    evidence = " ".join(str(hop.get("evidence") or "").split())
+    digest = str(hop.get("fingerprint") or "")
+    if not digest and rule:
+        digest = fingerprint(rule, file, evidence)
+    for item in suppressed:
+        if digest and item.get("fingerprint") and digest == item.get("fingerprint"):
+            return True
+        if not rule or _rule(item.get("rule")) != rule or not _files_match(str(item.get("file") or ""), file):
+            continue
+        other = " ".join(str(item.get("evidence") or "").split())
+        if other and evidence and (other in evidence or evidence in other):
+            return True
+        item_line = _line(item.get("line"))
+        if item_line and line and abs(line - item_line) <= LINE_WINDOW:
+            return True
+    return False
+
+
+def path_is_excepted(path: dict, suppressed: list[dict]) -> bool:
+    """Drop a walk only when every ruled hop is a specific exception."""
+    ruled = [hop for hop in path.get("hops") or [] if hop.get("rule")]
+    return bool(ruled) and all(hop_is_excepted(hop, suppressed) for hop in ruled)
+
+
 def _drop_unobserved_signals(model: RepoModel, suppressed_nodes: set) -> None:
     live = {item.get("node_id") for item in model.observations}
     drop = set()

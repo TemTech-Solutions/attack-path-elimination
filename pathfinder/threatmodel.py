@@ -12,7 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from pathfinder.agents import _frameworks
-from pathfinder.exceptions import fingerprint
+from pathfinder.exceptions import fingerprint, hop_is_excepted, path_is_excepted
 from pathfinder.query import FRAMEWORKS, roles_for
 
 ASSET_KINDS = {"secret", "datastore", "bucket", "cloud", "endpoint", "trigger", "workload", "container"}
@@ -51,7 +51,9 @@ def build_threat_model(result: dict) -> dict:
                 "roles": roles[:8],
             }
         )
-    threats = _threats(result)
+    threats = [item for item in _threats(result) if not path_is_excepted(item, result.get("suppressed") or [])]
+    threats = [_without_excepted_hops(item, result.get("suppressed") or []) for item in threats]
+    threats = [item for item in threats if item.get("hops")]
     catalog = []
     for framework in result.get("frameworks") or _catalog_from_names(threats):
         name = framework.get("name") or framework
@@ -109,6 +111,15 @@ def render_threat_html(result: dict) -> str:
     template = (Path(__file__).parent / "templates" / "threat.html").read_text(encoding="utf-8")
     payload = json.dumps(build_threat_model(result), ensure_ascii=False).replace("<", "\\u003c")
     return template.replace("__PAYLOAD__", payload)
+
+
+def _without_excepted_hops(threat: dict, suppressed: list[dict]) -> dict:
+    hops = [hop for hop in threat.get("hops") or [] if not hop_is_excepted(hop, suppressed)]
+    if hops == list(threat.get("hops") or []):
+        return threat
+    kept = dict(threat)
+    kept["hops"] = hops
+    return kept
 
 
 def _threats(result: dict) -> list[dict]:

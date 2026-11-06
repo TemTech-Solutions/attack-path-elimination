@@ -55,6 +55,7 @@ def pr_comment(result: dict) -> str:
         lines.append("")
     for path in shown:
         lines.extend(_path_block(path))
+    lines.extend(_threat_lines(result, covered))
     if extra:
         lines.append("### Component findings")
         lines.append("")
@@ -111,7 +112,92 @@ def pipeline_annotations(result: dict) -> list[str]:
         notes.append(_annotate(path.get("band"), path.get("score"), path.get("narrative") or "", path.get("hops") or [], path.get("recommendations") or [], github))
     for path in [item for item in result.get("paths") or [] if item.get("band") == "Medium"][:5]:
         notes.append(_annotate(path.get("band"), path.get("score"), path.get("narrative") or "", path.get("hops") or [], path.get("recommendations") or [], github))
+    seen = {(hop.get("file"), hop.get("line")) for path in (result.get("paths") or []) for hop in (path.get("hops") or [])}
+    from pathfinder.threatmodel import build_threat_model
+
+    extra = 0
+    for threat in build_threat_model(result).get("threats") or []:
+        if threat.get("band") not in {"Critical", "High"}:
+            continue
+        hop = next((item for item in threat.get("hops") or [] if item.get("file")), None)
+        if hop is None or (hop.get("file"), hop.get("line")) in seen:
+            continue
+        seen.add((hop.get("file"), hop.get("line")))
+        notes.append(
+            _annotate(
+                threat.get("band"),
+                threat.get("score"),
+                _threat_message(threat),
+                threat.get("hops") or [],
+                [threat["recommendation"]] if threat.get("recommendation") else [],
+                github,
+            )
+        )
+        extra += 1
+        if extra >= 8:
+            break
     return [line for line in notes if line]
+
+
+def _threat_lines(result: dict, covered: set) -> list[str]:
+    from pathfinder.threatmodel import build_threat_model
+
+    modeled = build_threat_model(result)
+    summary = modeled.get("summary") or {}
+    queued = []
+    medium = []
+    for threat in modeled.get("threats") or []:
+        hop = next((item for item in threat.get("hops") or [] if item.get("file")), None)
+        if hop is None:
+            continue
+        key = (hop.get("rule") or "", hop.get("file"), hop.get("line"))
+        if key in covered:
+            continue
+        band = threat.get("band")
+        if band in {"Critical", "High"}:
+            queued.append(threat)
+        elif band == "Medium" and (threat.get("score") or 0) >= 55:
+            medium.append(threat)
+    shown = queued[:12] + medium[:5]
+    lines = ["### Threat model", ""]
+    lines.append(
+        f"Threat model: {summary.get('threats', 0)} issues, {summary.get('critical', 0)} critical, "
+        f"{summary.get('frameworks', 0)} frameworks matched. "
+        "The queue below is critical, high, and a few medium issues that are not already listed as attack-path hops."
+    )
+    lines.append("")
+    if not shown:
+        lines.append("No additional threat-model issue outside the walks above.")
+        lines.append("")
+        return lines
+    for threat in shown:
+        hop = next(item for item in threat.get("hops") or [] if item.get("file"))
+        place = f"`{hop.get('file')}:{hop.get('line')}`"
+        stride = ", ".join(threat.get("stride") or []) or "unspecified"
+        frameworks = ", ".join((threat.get("frameworks") or [])[:4])
+        title = threat.get("name") or "Threat"
+        lines.append(f"- **{threat.get('band')} {threat.get('score')}** {title} {place}".rstrip())
+        lines.append(f"  - STRIDE: {stride}")
+        if frameworks:
+            lines.append(f"  - Frameworks: {frameworks}")
+        if hop.get("evidence"):
+            lines.append(f"  - {hop['evidence']}")
+        if threat.get("effect"):
+            lines.append(f"  - {threat['effect']}")
+        if threat.get("recommendation"):
+            lines.append(f"  - Remove: {threat['recommendation']}")
+    lines.append("")
+    return lines
+
+
+def _threat_message(threat: dict) -> str:
+    stride = ", ".join(threat.get("stride") or [])
+    text = threat.get("name") or "Threat"
+    if stride:
+        text = f"{text}. STRIDE: {stride}."
+    if threat.get("effect"):
+        text = f"{text} {threat['effect']}"
+    return text
 
 
 def _path_block(path: dict) -> list[str]:
