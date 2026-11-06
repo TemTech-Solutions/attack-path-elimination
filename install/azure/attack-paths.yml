@@ -36,6 +36,7 @@ steps:
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
       PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
+      PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan
     displayName: Analyze attack paths
 
   - task: PublishPipelineArtifact@1

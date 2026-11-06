@@ -120,7 +120,7 @@ git commit -m "Add attack path scan"
 git push
 ```
 
-The workflow runs on pull requests and on pushes to `main` or `master`. The job checks the application out, then runs this action. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
+The workflow runs on pull requests and on pushes to `main` or `master`. It has two jobs. `attack-paths` checks the application out and runs the deep scan. `exception-scan` runs that deep scan again and drops every recorded exception from the published findings. The pull-request comment and the `attack-path-report` artifact come from `exception-scan`. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
 
 Before you add or update that line, open the [Marketplace listing](https://github.com/marketplace/actions/attack-path-elimination) and confirm the latest release shown there. Use that release. A tag or hash copied from an older page stays on the older release until you change the workflow.
 
@@ -136,7 +136,9 @@ The calling workflow needs `contents: read` and, if pull-request comments are le
 | --- | --- | --- |
 | `path` | `.` | Directory inside the checkout to analyze |
 | `out` | `attack-paths-report` | Where the HTML, JSON, and comment are written |
-| `comment` | `true` | Update the pull-request comment. Set `false` to keep the artifact only |
+| `comment` | `true` | Update the pull-request comment. Set `false` to keep the artifact only. The deep-scan job sets this to `false` |
+| `exception_scan` | `false` | Run the deep scan, then drop recorded exceptions from the published findings. The exception-scan job sets this to `true` |
+| `artifact` | `attack-path-report` | Artifact name. The deep scan uploads `attack-path-review`. The exception scan uploads `attack-path-report` |
 
 Open **Actions**, then the **Attack paths** run. The log and the job summary are the work queue described above. Critical and high walks are also file annotations on that run.
 

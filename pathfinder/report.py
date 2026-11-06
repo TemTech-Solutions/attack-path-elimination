@@ -96,6 +96,14 @@ def pr_comment(result: dict) -> str:
     if suppressed:
         lines.append("")
         lines.append(f"{len(suppressed)} finding(s) omitted by remediation false-positive exceptions.")
+    scan = result.get("exception_scan") or {}
+    if scan:
+        lines.append("")
+        lines.append(
+            f"Exception scan removed {scan.get('removed', 0)} published finding(s) recorded in pathfinder-exceptions.yml."
+        )
+        for note in scan.get("notes") or []:
+            lines.append(f"- {note}")
     return "\n".join(lines)
 
 

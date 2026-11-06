@@ -97,7 +97,7 @@ def load_exceptions(root: Path) -> tuple[list[dict], str]:
     errors: list[str] = []
     for path in _exception_paths(Path(root)):
         relative = path.relative_to(root) if path.is_relative_to(root) else path
-        batch, error = _read_exception_file(path, Path(relative))
+        batch, error, _skipped = _read_exception_file(path, Path(relative))
         if error:
             errors.append(error)
             continue
@@ -153,12 +153,12 @@ def record_exception(root: Path, *, rule: str, file: str, line: int, reason: str
     return path
 
 
-def _read_exception_file(path: Path, relative: Path) -> tuple[list[dict], str]:
+def _read_exception_file(path: Path, relative: Path) -> tuple[list[dict], str, list[str]]:
     label = relative.as_posix()
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as exc:
-        return [], f"{label} was not applied: {exc}"
+        return [], f"{label} was not applied: {exc}", []
     if isinstance(raw, list):
         entries = raw
     elif isinstance(raw, dict):
@@ -166,16 +166,22 @@ def _read_exception_file(path: Path, relative: Path) -> tuple[list[dict], str]:
         if isinstance(entries, dict):
             entries = [entries]
     else:
-        return [], f"{label} was not applied: the document must be a mapping or a list"
+        return [], f"{label} was not applied: the document must be a mapping or a list", []
     if not isinstance(entries, list):
-        return [], f"{label} was not applied: exceptions must be a list"
+        return [], f"{label} was not applied: exceptions must be a list", []
     usable = []
+    skipped: list[str] = []
     for entry in entries:
         if not isinstance(entry, dict):
             continue
         status = str(_field(entry, "status") or "false_positive").lower().replace(" ", "_").replace("-", "_")
         reason = " ".join(str(_field(entry, "reason", "why", "note") or "").split())
+        file_hint = str(_field(entry, "file", "path", "location") or "").replace("\\", "/").strip() or "that entry"
         if status not in ACCEPTED or len(reason) < MIN_REASON:
+            if len(reason) < MIN_REASON:
+                skipped.append(f"{label}: {file_hint} was not applied. A reason needs at least 8 characters.")
+            else:
+                skipped.append(f"{label}: {file_hint} was not applied. The status is not an accepted exception.")
             continue
         file_value = str(_field(entry, "file", "path", "location") or "").replace("\\", "/").strip()
         line_value = _field(entry, "line", "lineno")
@@ -196,7 +202,7 @@ def _read_exception_file(path: Path, relative: Path) -> tuple[list[dict], str]:
                 "status": "false_positive",
             }
         )
-    return usable, ""
+    return usable, "", skipped
 
 
 def _exception_paths(root: Path) -> list[Path]:
@@ -377,6 +383,85 @@ def path_is_excepted(path: dict, suppressed: list[dict]) -> bool:
     """Drop a walk only when every ruled hop is a specific exception."""
     ruled = [hop for hop in path.get("hops") or [] if hop.get("rule")]
     return bool(ruled) and all(hop_is_excepted(hop, suppressed) for hop in ruled)
+
+
+def exception_scan(result: dict) -> dict:
+    """Deep pass over a finished scan. Drop every specific exception from the published findings."""
+    suppressed = list(result.get("suppressed") or [])
+    removed = 0
+
+    def keep(item: dict) -> bool:
+        nonlocal removed
+        if hop_is_excepted(item, suppressed):
+            removed += 1
+            return False
+        return True
+
+    result["findings"] = [item for item in result.get("findings") or [] if keep(item)]
+    result["observations"] = [item for item in result.get("observations") or [] if not hop_is_excepted(item, suppressed)]
+    paths = []
+    for path in result.get("paths") or []:
+        kept = dict(path)
+        hops = [hop for hop in path.get("hops") or [] if keep(hop)]
+        kept["hops"] = hops
+        kept["findings"] = [item for item in path.get("findings") or [] if keep(item)]
+        kept["labels"] = [hop.get("label") for hop in hops if hop.get("label")]
+        kept["node_ids"] = [hop["node_id"] for hop in hops if hop.get("node_id")]
+        if len(hops) < 2:
+            continue
+        if kept["labels"]:
+            kept["narrative"] = "An attacker can move from " + " → ".join(kept["labels"]) + "."
+        paths.append(kept)
+    result["paths"] = paths
+    for item in result.get("hypotheses") or []:
+        kept_paths = []
+        for path in item.get("paths") or []:
+            kept = dict(path)
+            hops = [hop for hop in path.get("hops") or [] if not hop_is_excepted(hop, suppressed)]
+            if path.get("hops") and not hops:
+                continue
+            kept["hops"] = hops
+            kept_paths.append(kept)
+        item["paths"] = kept_paths
+        item["found"] = len(kept_paths)
+    for node in (result.get("graph") or {}).get("nodes") or []:
+        node["findings"] = [item for item in node.get("findings") or [] if not hop_is_excepted(item, suppressed)]
+    scorecard = result.get("scorecard") or {}
+    if scorecard:
+        scorecard["findings"] = len(result["findings"])
+        scorecard["critical_paths"] = sum(1 for path in paths if path.get("band") == "Critical")
+        scorecard["high_paths"] = sum(1 for path in paths if path.get("band") == "High")
+    root = Path(result["root"]) if result.get("root") else None
+    notes = exception_gaps(root, suppressed) if root else []
+    result["exception_scan"] = {"removed": removed, "notes": notes}
+    return result
+
+
+def exception_gaps(root: Path | None, suppressed: list[dict]) -> list[str]:
+    if root is None:
+        return []
+    notes: list[str] = []
+    loaded, error = load_exceptions(root)
+    if error:
+        notes.append(error)
+    for path in _exception_paths(Path(root)):
+        relative = path.relative_to(root) if path.is_relative_to(root) else path
+        _usable, _error, skipped = _read_exception_file(path, Path(relative))
+        notes.extend(skipped)
+    for entry in loaded:
+        probe = {
+            "rule": entry.get("rule") or "",
+            "file": entry.get("file") or "",
+            "line": entry.get("line"),
+            "evidence": entry.get("evidence") or "",
+            "fingerprint": entry.get("fingerprint") or "",
+        }
+        if hop_is_excepted(probe, suppressed):
+            continue
+        place = entry.get("file") or "that entry"
+        rule = entry.get("rule") or "no rule"
+        notes.append(f"{rule} {place} did not match a finding, so nothing was removed for it.")
+    return notes
 
 
 def _drop_unobserved_signals(model: RepoModel, suppressed_nodes: set) -> None:

@@ -85,8 +85,24 @@ jobs:
       - name: Checkout this repository
         uses: actions/checkout@{CHECKOUT_REF} # v4.4.0
 
-      - name: Analyze attack paths
+      - name: Deep scan
         uses: {action}
+        with:
+          comment: "false"
+          artifact: attack-path-review
+
+  exception-scan:
+    needs: attack-paths
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@{CHECKOUT_REF} # v4.4.0
+
+      - name: Exception scan
+        uses: {action}
+        with:
+          exception_scan: "true"
+          artifact: attack-path-report
 """
 
 
@@ -108,6 +124,7 @@ attack-paths:
     - python -m pip install --upgrade pip
     - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
     - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
+    - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --exception-scan
   artifacts:
     when: always
     paths:
@@ -159,6 +176,7 @@ steps:
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
       PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
+      PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan
     displayName: Analyze attack paths
 
   - task: PublishPipelineArtifact@1

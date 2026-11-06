@@ -17,5 +17,21 @@ jobs:
       - name: Checkout this repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Analyze attack paths
+      - name: Deep scan
         uses: TemTech-Solutions/attack-path-elimination@7322ed8cd7a5ea9d83f4b6a85cfa20307eddaf90
+        with:
+          comment: "false"
+          artifact: attack-path-review
+
+  exception-scan:
+    needs: attack-paths
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Exception scan
+        uses: TemTech-Solutions/attack-path-elimination@7322ed8cd7a5ea9d83f4b6a85cfa20307eddaf90
+        with:
+          exception_scan: "true"
+          artifact: attack-path-report

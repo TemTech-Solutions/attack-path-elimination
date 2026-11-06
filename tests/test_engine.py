@@ -286,6 +286,9 @@ def test_install_hook_writes_into_the_other_repo(tmp_path: Path):
     assert text == published
     assert destination == tmp_path / ".github" / "workflows" / "attack-paths.yml"
     assert f"uses: TemTech-Solutions/attack-path-elimination@{PUBLIC_REF}" in text
+    assert "exception-scan:" in text
+    assert 'exception_scan: "true"' in text
+    assert "attack-path-review" in text
     assert "https://github.com/TemTech-Solutions/attack-path-elimination" in text
     assert "actions/checkout@11d5960a326750d5838078e36cf38b85af677262" in text
     assert "pull_request_target" not in text
@@ -500,6 +503,36 @@ def test_remediation_false_positives_are_left_out(tmp_path: Path):
     assert "Exceptions" in threat
     assert "Approved test double for the admin console" in threat
     assert "sandbox helper, not production" in threat
+    second["paths"].append(
+        {
+            "band": "High",
+            "score": 70,
+            "category": "remote_execution",
+            "narrative": "kept",
+            "labels": ["entry", "Dynamic execution", "other"],
+            "hops": [
+                {"label": "entry", "rule": "", "file": "admin.rb", "line": 1},
+                {"label": "Dynamic execution", "rule": "APP05", "file": "admin.rb", "line": 2, "evidence": "system(params[:cmd])"},
+                {"label": "other", "rule": "APP10", "file": "keep.rb", "line": 40},
+            ],
+            "findings": [{"rule": "APP05", "file": "admin.rb", "line": 2, "evidence": "system(params[:cmd])"}],
+            "node_ids": [],
+            "recommendations": [],
+        }
+    )
+    second["findings"].append({"rule": "APP05", "file": "admin.rb", "line": 2, "evidence": "system(params[:cmd])", "title": "Dynamic execution"})
+    from pathfinder.exceptions import exception_scan
+
+    scanned = exception_scan(second)
+    assert scanned["exception_scan"]["removed"] >= 1
+    assert not any(item.get("rule") == "APP05" and item.get("file") == "admin.rb" for item in scanned["findings"])
+    assert not any(
+        hop.get("rule") == "APP05" and str(hop.get("file") or "").endswith("admin.rb")
+        for path in scanned["paths"]
+        for hop in path.get("hops") or []
+    )
+    assert any(hop.get("rule") == "APP10" for path in scanned["paths"] for hop in path.get("hops") or [])
+    assert "Exception scan removed" in pr_comment(scanned)
 
 
 def test_local_learner_holds_placeholder_names(tmp_path: Path):

@@ -33,6 +33,11 @@ def main(argv: list[str] | None = None) -> int:
         scan_parser = sub.add_parser(name, help=help_text)
         scan_parser.add_argument("target", type=Path)
         scan_parser.add_argument("--out", type=Path, default=Path("out"))
+        scan_parser.add_argument(
+            "--exception-scan",
+            action="store_true",
+            help="Run the deep scan, then drop recorded exceptions from the published findings",
+        )
 
     comment_parser = sub.add_parser("comment", help="Print a pull-request comment for a repository")
     comment_parser.add_argument("target", type=Path)
@@ -118,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _dispatch(args) -> int:
     if args.command in {"analyze", "scan"}:
-        return _run_analyze(args.target, args.out)
+        return _run_analyze(args.target, args.out, exception_scan_enabled=args.exception_scan)
     if args.command == "comment":
         _print(pr_comment(analyze(args.target)))
         return 0
@@ -232,8 +237,12 @@ def _dispatch(args) -> int:
     return 1
 
 
-def _run_analyze(target: Path, out: Path) -> int:
+def _run_analyze(target: Path, out: Path, exception_scan_enabled: bool = False) -> int:
     result = apply_history(analyze(target), out / "history.json")
+    if exception_scan_enabled:
+        from pathfinder.exceptions import exception_scan
+
+        exception_scan(result)
     paths = write_outputs(result, out)
     _print(pr_comment(result))
     for note in pipeline_annotations(result):

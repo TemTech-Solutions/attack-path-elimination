@@ -42,7 +42,7 @@ python -m pathfinder install path/to/repository-to-scan
 
 Push the workflow to `main` or `master`. It also runs when a pull request is opened.
 
-The installed job does two things. It checks out the application repository with `actions/checkout` pinned to a full commit SHA. It then runs this action. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
+The installed workflow has two jobs. `attack-paths` checks out the application repository with `actions/checkout` pinned to a full commit SHA, then runs the deep scan. `exception-scan` runs that deep scan again and drops every recorded exception from the published findings. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
 
 Before you add or update that line, open the [Marketplace listing](https://github.com/marketplace/actions/attack-path-elimination) and confirm the latest release shown there. Use that release. A tag or hash copied from an older page stays on the older release until you change the workflow.
 
@@ -50,7 +50,7 @@ Before you add or update that line, open the [Marketplace listing](https://githu
 
 **Pinned SHA.** You can pin the same line to the full 40-character commit hash of the release you just verified. A short hash does not run. Copy the hash from that Marketplace release. A later commit on `main` leaves a pinned line on the same hash until you replace it. The workflow file from this repository is pinned to a full commit hash. Confirm on Marketplace that it still matches the latest release before you rely on it.
 
-The job needs `contents: read`. Pull-request comments also need `pull-requests: write`. The Action upgrades pip, installs its own requirements, analyzes `.`, uploads `attack-path-report`, writes the chains into the job summary, and on a pull request updates one comment.
+The jobs need `contents: read`. Pull-request comments also need `pull-requests: write`. The Action upgrades pip, installs its own requirements, and analyzes `.`. The deep scan uploads `attack-path-review` and does not comment. The exception scan uploads `attack-path-report`, writes the chains into the job summary, and on a pull request updates one comment.
 
 To keep the artifact and skip the comment, call the action with `comment: "false"`.
 
@@ -59,7 +59,7 @@ To keep the artifact and skip the comment, call the action with `comment: "false
 The log is the work queue. The HTML artifact is the full review. Open the repository on GitHub and go to **Actions**. Open the **Attack paths** run.
 
 - The log and the run summary list the work queue: critical paths, high paths, the medium walks that connect an entry to an asset, and the threat-model issues that are not already one of those hops. Each one shows the file, the line, and what to remove. Critical and high walks are file annotations on the run. A recorded exception removes that one issue from the attack paths and from the threat model. The local learner holds back a learned name when it matches false positives this repository already accepted.
-- Download the `attack-path-report` artifact.
+- Read the `exception-scan` job for the queue after recorded exceptions are removed. Download the `attack-path-report` artifact from that job.
 - Open `report.html` for the ranked chains, `graph.html` for the graph, and `threat-model.html` for the grouped threat model. Those pages keep the full review, including signals below the work queue.
 - If the run came from a pull request, the same short summary is posted as one comment. Later runs update that comment. The comment is marked `<!-- pathfinder-attack-paths -->`.
 
