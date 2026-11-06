@@ -53,6 +53,14 @@
   .card h3, h2, h3 { margin: 10px 0 6px; }
   .card p, .step { margin: 4px 0; }
   .step { padding: 6px 8px; border-radius: 8px; background: #0d1526; }
+  pre.exception {
+    white-space: pre-wrap;
+    background: #0d1526;
+    border-radius: 8px;
+    padding: 8px;
+    margin: 6px 0 0;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
   .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
   .swatch { display: inline-block; width: 22px; height: 0; border-top: 2px solid #d6e4ff; margin-right: 6px; vertical-align: middle; }
   .swatch.inferred { border-top-style: dashed; }
@@ -495,8 +503,26 @@ function findingBlock(finding) {
   card.className = "card";
   const place = finding.file ? finding.file + (finding.line ? ":" + finding.line : "") : "";
   add(card, "p", [finding.rule, finding.title, place].filter(Boolean).join(" · "));
+  if (finding.file || finding.rule) {
+    add(card, "p", "File " + (finding.file || "not recorded") + " · Rule " + (finding.rule || "not recorded") + " · Line " + (finding.line || "not recorded"));
+  }
   if (finding.evidence) add(card, "p", finding.evidence);
   if (finding.recommendation) add(card, "p", "What to remove: " + finding.recommendation);
+  if (finding.rule && finding.file) {
+    const link = document.createElement("a");
+    link.href = "threat-model.html#" + encodeURIComponent([finding.rule, finding.file, String(finding.line || "")].join("|"));
+    link.textContent = "Open this issue in the threat model";
+    const row = document.createElement("p");
+    row.appendChild(link);
+    card.appendChild(row);
+    add(card, "p", "For the exception record");
+    add(card, "p", "One issue in pathfinder-exceptions.yml. A reason needs at least 8 characters. A blank reason does not hide this finding.").className = "muted";
+    const line = finding.line === 0 || finding.line ? String(finding.line) : '""';
+    const snippet = document.createElement("pre");
+    snippet.className = "exception";
+    snippet.textContent = "exceptions:\n  - file: " + finding.file + "\n    rule: " + finding.rule + "\n    line: " + line + "\n    reason:";
+    card.appendChild(snippet);
+  }
   return card;
 }
 

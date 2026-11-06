@@ -165,6 +165,10 @@ def test_html_and_comment_carry_the_chain(payment_repo: Path):
     assert "Risk score" in html
     assert "Findings on this path" in html
     assert "For the exception record" in html
+    assert "pathfinder-exceptions.yml" in html
+    assert "exceptions:" in html
+    assert "A blank reason does not hide this finding." in html
+    assert "pathfinder: false-positive:" in html
     comment = pr_comment(result)
     assert "Auth bypass" in comment
     assert "Static review only" in comment
@@ -182,6 +186,8 @@ def test_html_and_comment_carry_the_chain(payment_repo: Path):
     assert "EXTRACTED" in page and "INFERRED" in page and "<canvas" in page
     assert "Paths to eliminate" in page
     assert "What to remove" in page
+    assert "For the exception record" in page
+    assert "Open this issue in the threat model" in page
     recommendation = next(text for path in result["paths"] if path.get("recommendations") for text in path["recommendations"])
     assert recommendation in page
     threat = render_threat_html(result)
@@ -189,6 +195,8 @@ def test_html_and_comment_carry_the_chain(payment_repo: Path):
     assert "STRIDE" in threat
     assert "DREAD" in threat
     assert "PASTA" in threat
+    assert "For the exception record" in threat
+    assert "pathfinder-exceptions.yml" in threat
     assert recommendation in threat
     from pathfinder.threatmodel import build_threat_model
     modeled = build_threat_model(result)

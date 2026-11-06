@@ -53,6 +53,25 @@
   .Low { color: var(--low); }
   .detail { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
   ul { margin: 6px 0; padding-left: 18px; }
+  .triage { display: grid; grid-template-columns: 72px 1fr; gap: 4px 8px; margin: 8px 0; }
+  .triage dt { color: var(--muted); }
+  .triage dd { margin: 0; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; word-break: break-all; }
+  pre.exception {
+    white-space: pre-wrap;
+    background: #0c1222;
+    border-radius: 8px;
+    padding: 8px;
+    margin: 6px 0 0;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  button.copy {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -203,7 +222,10 @@ function card(threat, index) {
   add(el, "p", "Why this is first: " + (threat.why || ""));
   add(el, "p", threat.effect || "");
   if (threat.recommendation) add(el, "p", "Next step: " + threat.recommendation);
-  if (openId === id) el.appendChild(detail(threat));
+  if (openId === id) {
+    el.id = "open-threat";
+    el.appendChild(detail(threat));
+  }
   return el;
 }
 
@@ -227,6 +249,9 @@ function detail(threat) {
       list.appendChild(li);
     });
     box.appendChild(list);
+    threat.hops.forEach((hop) => {
+      if (hop.rule && hop.file) box.appendChild(exceptionRecord(hop));
+    });
   }
   if ((threat.remove || []).length > 1) {
     add(box, "p", "What to remove");
@@ -281,6 +306,92 @@ function drawNotes(root) {
   if (!root.querySelector(".card")) add(root, "p", "No extra review note in this snapshot.").className = "muted";
 }
 
+function placeKey(hop) {
+  return [hop.rule || "", hop.file || "", String(hop.line || "")].join("|");
+}
+
+function yamlScalar(value) {
+  const text = String(value ?? "");
+  if (text === "") return '""';
+  if (/[:#{}[\],&*!|>'"%@`]|^\s|\s$|\n/.test(text)) {
+    return '"' + text.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+  }
+  return text;
+}
+
+function exceptionYaml(hop) {
+  const line = hop.line === 0 || hop.line ? String(hop.line) : "";
+  return [
+    "exceptions:",
+    "  - file: " + yamlScalar(hop.file || ""),
+    "    rule: " + yamlScalar(hop.rule || ""),
+    "    line: " + (line || '""'),
+    "    reason:"
+  ].join("\n");
+}
+
+function exceptionRecord(hop) {
+  const block = document.createElement("div");
+  const list = document.createElement("dl");
+  list.className = "triage";
+  [["File", hop.file], ["Rule", hop.rule], ["Line", hop.line || "not recorded"]].forEach(([label, value]) => {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const data = document.createElement("dd");
+    data.textContent = String(value);
+    list.appendChild(term);
+    list.appendChild(data);
+  });
+  block.appendChild(list);
+  const record = document.createElement("p");
+  record.textContent = "For the exception record";
+  block.appendChild(record);
+  add(block, "p", "One issue. Commit pathfinder-exceptions.yml in the repository that runs the scan, at the root next to README.md. Fill in a reason of at least 8 characters. A blank reason does not hide this finding. Another finding in the same file stays.").className = "muted";
+  const snippet = document.createElement("pre");
+  snippet.className = "exception";
+  snippet.textContent = exceptionYaml(hop);
+  block.appendChild(snippet);
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "copy";
+  copy.textContent = "Copy";
+  copy.addEventListener("click", () => {
+    const text = snippet.textContent;
+    const done = () => {
+      copy.textContent = "Copied";
+      setTimeout(() => { copy.textContent = "Copy"; }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => done());
+    } else {
+      done();
+    }
+  });
+  block.appendChild(copy);
+  if (hop.evidence) {
+    add(block, "p", "Or on the line above the evidence:").className = "muted";
+    const inline = document.createElement("pre");
+    inline.className = "exception";
+    inline.textContent = "# pathfinder: false-positive: \n" + String(hop.evidence).split("\n")[0];
+    block.appendChild(inline);
+  }
+  return block;
+}
+
+function openLinked() {
+  const raw = decodeURIComponent((location.hash || "").replace(/^#/, ""));
+  if (!raw) return false;
+  const threat = (model.threats || []).find((item) => (item.hops || []).some((hop) => placeKey(hop) === raw));
+  if (!threat) return false;
+  lens = LENSES[0];
+  group = threat.severity || threat.band || "Unscored";
+  const items = members(group).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  const index = items.indexOf(threat);
+  if (index < 0) return false;
+  openId = String(index) + "|" + threat.name + "|" + threat.score;
+  return true;
+}
+
 function show(value) {
   if (value === undefined || value === null || value === "") return "—";
   return String(value);
@@ -293,9 +404,14 @@ function add(parent, tag, text) {
   return el;
 }
 
+const linked = openLinked();
 drawLenses();
 drawGroups();
 drawPanel();
+if (linked) {
+  const open = document.getElementById("open-threat");
+  if (open) open.scrollIntoView({ block: "start" });
+}
 </script>
 </body>
 </html>

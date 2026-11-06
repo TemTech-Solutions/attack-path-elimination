@@ -95,7 +95,6 @@
   code { color: #d6e4ff; }
   a { color: var(--accent); }
   .finding {
-    width: 100%;
     text-align: left;
     color: inherit;
     background: #10192d;
@@ -103,20 +102,42 @@
     border-radius: 10px;
     padding: 10px 12px;
     margin: 8px 0 0;
-    cursor: pointer;
   }
   .finding.open, .finding:hover { border-color: var(--accent); }
+  .finding-head {
+    width: 100%;
+    text-align: left;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    font: inherit;
+  }
   .finding h3 { margin: 0 0 8px; font-size: 15px; }
   .triage { display: grid; grid-template-columns: 72px 1fr; gap: 4px 8px; margin: 0; }
   .triage dt { color: var(--muted); }
-  .triage dd { margin: 0; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  .triage dd { margin: 0; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; word-break: break-all; }
+  .clip { margin: 8px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .finding.open .clip { display: none; }
   .detail { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .copyrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .copyrow p { margin: 0; }
+  button.copy {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
   pre.exception {
     white-space: pre-wrap;
     background: #0c1222;
     border-radius: 8px;
     padding: 8px;
     margin: 6px 0 0;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   }
 </style>
 </head>
@@ -141,7 +162,7 @@
       <h3>What to remove</h3>
       <ul id="recs"></ul>
       <h3>Findings on this path</h3>
-      <p class="muted">Each card is one detection. File, rule, and line stay visible so a different finding can be triaged on its own.</p>
+      <p class="muted">Each card is one detection. File, rule, and line stay visible. Open a card to copy that one issue into <code>pathfinder-exceptions.yml</code>. Effect, STRIDE, and the walk are in the <a href="threat-model.html">threat model</a>.</p>
       <div id="findings"></div>
     </section>
     <section class="panel" id="detail"><p class="muted">Select a component.</p></section>
@@ -253,7 +274,13 @@ function renderChain() {
     where.textContent = [hop.rule, hop.tier, hop.file, hop.line].filter(Boolean).join(" · ");
     card.appendChild(where);
     card.addEventListener("click", () => {
-      openFinding = findingKey(hop);
+      openFinding = findingKey({
+        rule: hop.rule,
+        title: hop.label,
+        file: hop.file,
+        line: hop.line,
+        evidence: hop.evidence
+      });
       renderDetail(hop.node_id, path);
       renderFindings(path);
     });
@@ -295,6 +322,12 @@ function renderDetail(nodeId, path) {
       evidence.textContent = "Evidence: " + chosen.evidence;
       detail.appendChild(evidence);
     }
+    const more = document.createElement("p");
+    const link = document.createElement("a");
+    link.href = threatHref(chosen);
+    link.textContent = "Open this issue in the threat model";
+    more.appendChild(link);
+    detail.appendChild(more);
   }
   const node = nodes[nodeId];
   if (!node) {
@@ -400,6 +433,39 @@ function triageBlock(finding) {
   return list;
 }
 
+function placeKey(item) {
+  return [item.rule || "", item.file || "", String(item.line || "")].join("|");
+}
+
+function threatHref(finding) {
+  return "threat-model.html#" + encodeURIComponent(placeKey(finding));
+}
+
+function yamlScalar(value) {
+  const text = String(value ?? "");
+  if (text === "") return '""';
+  if (/[:#{}[\],&*!|>'"%@`]|^\s|\s$|\n/.test(text)) {
+    return '"' + text.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+  }
+  return text;
+}
+
+function exceptionYaml(finding) {
+  const line = finding.line === 0 || finding.line ? String(finding.line) : "";
+  return [
+    "exceptions:",
+    "  - file: " + yamlScalar(finding.file || ""),
+    "    rule: " + yamlScalar(finding.rule || ""),
+    "    line: " + (line || '""'),
+    "    reason:"
+  ].join("\n");
+}
+
+function inlineMark(finding) {
+  const evidence = String(finding.evidence || "").split("\n")[0];
+  return "# pathfinder: false-positive: \n" + evidence;
+}
+
 function renderFindings(path) {
   const root = document.getElementById("findings");
   root.textContent = "";
@@ -414,42 +480,100 @@ function renderFindings(path) {
   }
   items.forEach((finding) => {
     const key = findingKey(finding);
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = "finding" + (openFinding === key ? " open" : "");
+    const open = openFinding === key;
+    const card = document.createElement("article");
+    card.className = "finding" + (open ? " open" : "");
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "finding-head";
     const heading = document.createElement("h3");
     heading.textContent = finding.title || finding.rule || "Finding";
-    card.appendChild(heading);
-    card.appendChild(triageBlock(finding));
-    if (openFinding === key) {
-      const extra = document.createElement("div");
-      extra.className = "detail";
-      if (finding.evidence) {
-        const evidence = document.createElement("p");
-        evidence.textContent = "Evidence: " + finding.evidence;
-        extra.appendChild(evidence);
-      }
-      if (finding.recommendation) {
-        const remove = document.createElement("p");
-        remove.textContent = "What to remove: " + finding.recommendation;
-        extra.appendChild(remove);
-      }
-      const record = document.createElement("p");
-      record.textContent = "For the exception record";
-      extra.appendChild(record);
-      const snippet = document.createElement("pre");
-      snippet.className = "exception";
-      snippet.textContent = "rule: " + (finding.rule || "") + "\nfile: " + (finding.file || "") + "\nline: " + (finding.line || "");
-      extra.appendChild(snippet);
-      card.appendChild(extra);
+    head.appendChild(heading);
+    head.appendChild(triageBlock(finding));
+    if (finding.evidence) {
+      const preview = document.createElement("p");
+      preview.className = "muted clip";
+      preview.textContent = finding.evidence;
+      head.appendChild(preview);
     }
-    card.addEventListener("click", () => {
-      openFinding = openFinding === key ? "" : key;
+    head.addEventListener("click", () => {
+      openFinding = open ? "" : key;
       renderFindings(path);
       renderDetail(nodeFor(finding, path), path);
     });
+    card.appendChild(head);
+    if (open) card.appendChild(findingDetail(finding));
     root.appendChild(card);
   });
+}
+
+function findingDetail(finding) {
+  const extra = document.createElement("div");
+  extra.className = "detail";
+  if (finding.evidence) {
+    const label = document.createElement("p");
+    label.textContent = "Evidence";
+    extra.appendChild(label);
+    const evidence = document.createElement("pre");
+    evidence.className = "exception";
+    evidence.textContent = finding.evidence;
+    extra.appendChild(evidence);
+  }
+  if (finding.recommendation) {
+    const remove = document.createElement("p");
+    remove.textContent = "What to remove: " + finding.recommendation;
+    extra.appendChild(remove);
+  }
+  const more = document.createElement("p");
+  more.appendChild(document.createTextNode("Effect, STRIDE, and the walk for this issue are in the "));
+  const link = document.createElement("a");
+  link.href = threatHref(finding);
+  link.textContent = "threat model";
+  more.appendChild(link);
+  more.appendChild(document.createTextNode("."));
+  extra.appendChild(more);
+  const row = document.createElement("div");
+  row.className = "copyrow";
+  const record = document.createElement("p");
+  record.textContent = "For the exception record";
+  row.appendChild(record);
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "copy";
+  copy.textContent = "Copy";
+  const snippetText = exceptionYaml(finding);
+  copy.addEventListener("click", () => copyText(copy, snippetText));
+  row.appendChild(copy);
+  extra.appendChild(row);
+  const note = document.createElement("p");
+  note.className = "muted";
+  note.textContent = "One issue. Commit pathfinder-exceptions.yml in the repository that runs the scan, at the root next to README.md. The filename has no leading dot. Fill in a reason of at least 8 characters. A blank reason does not hide this finding. Another finding in the same file stays.";
+  extra.appendChild(note);
+  const snippet = document.createElement("pre");
+  snippet.className = "exception";
+  snippet.textContent = snippetText;
+  extra.appendChild(snippet);
+  const inlineLabel = document.createElement("p");
+  inlineLabel.className = "muted";
+  inlineLabel.textContent = "Or on the line above the evidence:";
+  extra.appendChild(inlineLabel);
+  const inline = document.createElement("pre");
+  inline.className = "exception";
+  inline.textContent = inlineMark(finding);
+  extra.appendChild(inline);
+  return extra;
+}
+
+function copyText(button, text) {
+  const done = () => {
+    button.textContent = "Copied";
+    setTimeout(() => { button.textContent = "Copy"; }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => done());
+    return;
+  }
+  done();
 }
 
 function render() {
