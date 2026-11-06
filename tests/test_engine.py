@@ -301,7 +301,21 @@ def test_install_hook_writes_into_the_other_repo(tmp_path: Path):
     action = (Path(__file__).resolve().parents[1] / "action.yml").read_text(encoding="utf-8")
     assert "python -m pathfinder analyze" in action
     assert "full commit SHA" in action
+    assert "ref_is_allowed" in action
     assert "pull_request_target" not in action
+
+
+def test_marketplace_release_tags_run_and_branches_do_not():
+    from pathfinder.action_ref import ref_is_allowed
+
+    assert ref_is_allowed("v1.0.2")
+    assert ref_is_allowed("v1")
+    assert ref_is_allowed("refs/tags/v1.0.2")
+    assert ref_is_allowed("93268821c88ffe1e5b6bab91e493c3c8ed9187b9")
+    assert not ref_is_allowed("main")
+    assert not ref_is_allowed("master")
+    assert not ref_is_allowed("vkt")
+    assert not ref_is_allowed("")
 
 
 def test_subtractive_families_compose(tmp_path: Path):

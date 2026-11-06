@@ -92,6 +92,8 @@ A hit requires structural evidence: a call, a string-built query, a credential l
 
 ## Integrate with GitHub Actions
 
+**Easy install and testing:** install the [TemTech Attack Path](https://github.com/apps/temtech-attack-path) GitHub App. Sign in as the account that owns the repositories, then choose **All repositories** or **Only select repositories**. That page is the short path for a trial. The private key stays with the app owner. The workflow below is what runs the scan on pull requests and on `main` or `master`.
+
 From the repository you want to scan, add one workflow. The application stays in its own repository. GitHub checks that repository out and runs the analyzer from this action.
 
 ```bash
@@ -114,13 +116,23 @@ git commit -m "Add attack path scan"
 git push
 ```
 
-The workflow runs on pull requests and on pushes to `main` or `master`. The job checks the application out, then runs:
+The workflow runs on pull requests and on pushes to `main` or `master`. The job checks the application out, then runs this action. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
+
+**Latest tag.** On the [Marketplace listing](https://github.com/marketplace/actions/attack-path-elimination), select the latest version and copy the snippet. The line uses that release tag:
+
+```yaml
+uses: TemTech-Solutions/attack-path-elimination@v1.0.2
+```
+
+`@v1.0.2` stays on that release. `@v1` also runs when that major tag exists, and it follows the release the tag points at. A newer Marketplace release leaves a workflow that still says `@v1.0.2` on that release.
+
+**Pinned SHA.** The workflow file copied above is already pinned to a full commit hash. A short hash does not run.
 
 ```yaml
 uses: TemTech-Solutions/attack-path-elimination@93268821c88ffe1e5b6bab91e493c3c8ed9187b9
 ```
 
-That ref is a full commit SHA. The action refuses a branch or a tag before it analyzes anything, because a branch or tag can move after review. The published hook in this repository is rewritten to the new commit when `main` moves. A repository that already committed an older SHA keeps running that commit until someone replaces the workflow.
+A later commit on `main` leaves that line on the same hash. Replace the hash to move to a newer build. A push to `main` of this repository rewrites the published hook to the new commit. A repository that already committed an older hash keeps that hash until someone replaces the workflow.
 
 `actions/checkout`, `actions/setup-python`, and `actions/upload-artifact` inside the action are pinned to full commit SHAs as well. Pip is upgraded before the analyzer's dependencies are installed.
 
@@ -154,7 +166,7 @@ include:
   - local: attack-paths.gitlab-ci.yml
 ```
 
-The job runs on merge requests and on the default branch. It fetches the same pinned commit from `https://github.com/TemTech-Solutions/attack-path-elimination.git`, installs dependencies after upgrading pip, and analyzes the application checkout. Artifacts are under `attack-paths-report/`: `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
+The job runs on merge requests and on the default branch. It fetches the full commit hash pinned in that file from `https://github.com/TemTech-Solutions/attack-path-elimination.git`, installs dependencies after upgrading pip, and analyzes the application checkout. GitLab and Azure hooks stay on that hash. The release-tag option above is for the GitHub Action `uses:` line. Artifacts are under `attack-paths-report/`: `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
 
 ## Integrate with Azure DevOps
 
@@ -178,7 +190,7 @@ Or `python -m pathfinder install path\to\repository-to-scan --platform azure`.
 
 In Azure DevOps, create a pipeline from that file: **Pipelines**, **New pipeline**, select the repository, then **Existing Azure Pipelines YAML file**, and choose `azure-pipelines/attack-paths.yml`. Commit and run it.
 
-The pipeline runs on pull requests and on pushes to `main` or `master`. It checks the application out, fetches the same pinned commit, upgrades pip, and analyzes that checkout. The artifact is `attack-path-report`, and it contains `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
+The pipeline runs on pull requests and on pushes to `main` or `master`. It checks the application out, fetches the full commit hash pinned in that file, upgrades pip, and analyzes that checkout. The artifact is `attack-path-report`, and it contains `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
 
 On an Azure Repos pull request, the pipeline updates one comment marked `<!-- pathfinder-attack-paths -->`. That comment needs the build service identity to have permission to contribute to pull requests. If the permission is missing, the artifact is still published. A repository connected from GitHub or GitLab gets the artifact. The comment step runs for Azure Repos.
 

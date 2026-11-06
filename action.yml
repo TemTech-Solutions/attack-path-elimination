@@ -18,26 +18,26 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Require a pinned commit
+    - name: Require a release tag or a pinned commit
       shell: bash
       env:
         ACTION_REF: ${{ github.action_ref }}
         ACTION_REPO: ${{ github.action_repository }}
-        GH_TOKEN: ${{ github.token }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
-        if printf '%s' "$ACTION_REF" | grep -Eq '^[0-9a-f]{40}$'; then
+        set -euo pipefail
+        export PYTHONPATH="$ACTION_PATH"
+        if command -v python3 >/dev/null 2>&1; then
+          py=python3
+        else
+          py=python
+        fi
+        if "$py" -c 'import os, sys; from pathfinder.action_ref import ref_is_allowed; sys.exit(0 if ref_is_allowed(os.environ.get("ACTION_REF", "")) else 1)'; then
           exit 0
         fi
-        echo "::error::Pin this action to a full commit SHA. A branch or tag can be moved after review."
+        echo "::error::Use a Marketplace release tag such as @v1.0.2, or a full commit SHA. A branch name is refused."
         echo "The workflow called ${ACTION_REPO}@${ACTION_REF}."
-        if [ -n "$ACTION_REPO" ] && [ -n "$ACTION_REF" ]; then
-          sha="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${ACTION_REPO}/commits/${ACTION_REF}" | jq -r '.sha // empty')"
-          if printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "Commit this line instead. Later pushes will not change it:"
-            echo "  uses: ${ACTION_REPO}@${sha}"
-          fi
-        fi
-        echo "Or copy install/github/attack-paths.yml from the action repository. That file is already pinned."
+        echo "Or copy install/github/attack-paths.yml from the action repository. That file is already pinned to a full commit SHA."
         exit 1
 
     - name: Set up Python

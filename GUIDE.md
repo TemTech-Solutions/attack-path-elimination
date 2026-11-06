@@ -10,6 +10,8 @@ The application you want to scan stays in its own repository. The analyzer is do
 
 ## 1. Add the GitHub Action
 
+**Easy install and testing:** open [TemTech Attack Path](https://github.com/apps/temtech-attack-path) and install the GitHub App. Sign in as the account that owns the repositories, then choose **All repositories** or **Only select repositories**. Use that page to try the app on the repositories you pick. The private key stays with the app owner. The workflow below is what runs the scan.
+
 Open a terminal in the repository you want to scan. This is not the attack-path-elimination folder.
 
 ```bash
@@ -40,13 +42,23 @@ python -m pathfinder install path/to/repository-to-scan
 
 Push the workflow to `main` or `master`. It also runs when a pull request is opened.
 
-The installed job does two things. It checks out the application repository with `actions/checkout` pinned to a full commit SHA. It then runs:
+The installed job does two things. It checks out the application repository with `actions/checkout` pinned to a full commit SHA. It then runs this action. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
+
+**Latest tag.** On the [Marketplace listing](https://github.com/marketplace/actions/attack-path-elimination), **Use latest version** writes the current release tag:
+
+```yaml
+uses: TemTech-Solutions/attack-path-elimination@v1.0.2
+```
+
+`@v1.0.2` stays on that release. `@v1` also runs when that major tag exists, and it follows the release the tag points at. A newer Marketplace release leaves a workflow that still says `@v1.0.2` on that release.
+
+**Pinned SHA.** The copied workflow file uses the full commit hash. A short hash does not run.
 
 ```yaml
 uses: TemTech-Solutions/attack-path-elimination@93268821c88ffe1e5b6bab91e493c3c8ed9187b9
 ```
 
-That value is a full commit SHA. The action refuses a branch or a tag, so a workflow that says `@main` or `@v1` fails before it analyzes anything. A push to `main` of this repository rewrites the published hook to that commit. A repository that already committed an older SHA keeps running that commit until someone copies the new hook.
+A later commit on `main` leaves that line on the same hash. Replace the hash to move to a newer build. A push to `main` of this repository rewrites the published hook to the new commit. A repository that already committed an older hash keeps that hash until someone copies the new hook.
 
 The job needs `contents: read`. Pull-request comments also need `pull-requests: write`. The Action upgrades pip, installs its own requirements, analyzes `.`, uploads `attack-path-report`, writes the chains into the job summary, and on a pull request updates one comment.
 
@@ -81,7 +93,7 @@ include:
   - local: attack-paths.gitlab-ci.yml
 ```
 
-The job runs on merge requests and on the default branch, in a `python:3.12` image. It fetches the pinned commit from GitHub, upgrades pip, installs requirements, and analyzes the project directory. Artifacts, kept even when the job fails, are:
+The job runs on merge requests and on the default branch, in a `python:3.12` image. It fetches the full commit hash pinned in that file from GitHub, upgrades pip, installs requirements, and analyzes the project directory. GitLab and Azure hooks stay on that hash. The release-tag option in section 1 is for the GitHub Action `uses:` line. Artifacts, kept even when the job fails, are:
 
 - `attack-paths-report/report.html`
 - `attack-paths-report/graph.html`
@@ -106,7 +118,7 @@ Or `python -m pathfinder install path/to/repository-to-scan --platform azure`.
 
 In Azure DevOps, open **Pipelines**, **New pipeline**, select the repository, choose **Existing Azure Pipelines YAML file**, and set the path to `azure-pipelines/attack-paths.yml`.
 
-The pipeline runs on pull requests and on `main` or `master`, on `ubuntu-latest`, with Python 3.12. It fetches the pinned commit from GitHub, upgrades pip, installs requirements, and analyzes the project directory. The artifact `attack-path-report` is published even when a later step fails, and it contains:
+The pipeline runs on pull requests and on `main` or `master`, on `ubuntu-latest`, with Python 3.12. It fetches the full commit hash pinned in that file from GitHub, upgrades pip, installs requirements, and analyzes the project directory. The artifact `attack-path-report` is published even when a later step fails, and it contains:
 
 - `report.html`
 - `graph.html`
