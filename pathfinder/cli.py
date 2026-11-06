@@ -19,7 +19,7 @@ from pathfinder.query import (
     search,
     translate,
 )
-from pathfinder.report import pr_comment, write_outputs
+from pathfinder.report import pipeline_annotations, pr_comment, write_outputs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -235,10 +235,9 @@ def _dispatch(args) -> int:
 def _run_analyze(target: Path, out: Path) -> int:
     result = apply_history(analyze(target), out / "history.json")
     paths = write_outputs(result, out)
-    _print(result["paths"][0]["narrative"] if result["paths"] else "No attack path composed.")
-    reached = [item for item in result.get("hypotheses") or [] if item.get("found")]
-    if reached:
-        _print(f"Objectives reached: {len(reached)}")
+    _print(pr_comment(result))
+    for note in pipeline_annotations(result):
+        _print(note)
     _print(f"HTML report: {paths['html']}")
     _print(f"Graph: {paths['graph']}")
     _print(f"Threat model: {paths['threat']}")

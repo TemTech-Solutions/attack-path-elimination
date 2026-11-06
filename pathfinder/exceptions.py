@@ -20,7 +20,8 @@ from pathfinder.model import RepoModel
 EXCEPTIONS_FILE = Path("pathfinder-exceptions.yml")
 LEGACY_EXCEPTIONS_FILE = Path(".pathfinder") / "exceptions.yml"
 EXCEPTION_FILES = (EXCEPTIONS_FILE, LEGACY_EXCEPTIONS_FILE)
-ACCEPTED = {"false_positive", "false-positive", "fp", "ignore"}
+ACCEPTED = {"false_positive", "fp", "ignore", "accepted", "skip", "skipped", "suppressed", "exception", "waived", "falsepositive"}
+LINE_WINDOW = 12
 MARKER = re.compile(
     r"pathfinder:\s*(?:ignore|false-positive|false_positive)"
     r"(?:\s+(?P<rules>[A-Za-z][A-Za-z0-9,]{1,80}))?"
@@ -41,33 +42,50 @@ def apply_exceptions(model: RepoModel) -> list[dict]:
     loaded, error = load_exceptions(model.root)
     if error:
         model.error(EXCEPTIONS_FILE.as_posix(), error)
-        loaded = []
+        if not loaded:
+            loaded = []
     kept = []
     suppressed = list(getattr(model, "suppressed", []) or [])
     texts: dict[str, dict[int, list[tuple[set[str] | None, str]]]] = {}
+    matched: list[tuple[dict, dict]] = []
+    pending = []
     for observation in model.observations:
         observation["fingerprint"] = fingerprint(
             str(observation.get("rule") or ""),
             str(observation.get("file") or ""),
             str(observation.get("evidence") or ""),
         )
-        match = _match(observation, loaded, _marks_for(model.root, observation.get("file"), observation.get("line"), texts))
+        match = _match(
+            model.root,
+            observation,
+            loaded,
+            _marks_for(model.root, observation.get("file"), observation.get("line"), texts),
+        )
         if match:
-            suppressed.append(
-                {
-                    "fingerprint": observation["fingerprint"],
-                    "rule": observation.get("rule") or "",
-                    "file": observation.get("file"),
-                    "line": observation.get("line"),
-                    "title": observation.get("title") or "",
-                    "evidence": observation.get("evidence") or "",
-                    "reason": match.get("reason") or "",
-                    "by": match.get("by") or "remediation",
-                    "node_id": observation.get("node_id"),
-                }
-            )
+            matched.append((observation, match))
+            continue
+        pending.append(observation)
+    seed = list(matched)
+    for observation in pending:
+        near = _near_matched(observation, seed)
+        if near:
+            matched.append((observation, near))
             continue
         kept.append(observation)
+    for observation, match in matched:
+        suppressed.append(
+            {
+                "fingerprint": observation["fingerprint"],
+                "rule": observation.get("rule") or "",
+                "file": observation.get("file"),
+                "line": observation.get("line"),
+                "title": observation.get("title") or "",
+                "evidence": observation.get("evidence") or "",
+                "reason": match.get("reason") or "",
+                "by": match.get("by") or "remediation",
+                "node_id": observation.get("node_id"),
+            }
+        )
     model.observations = kept
     model.suppressed = suppressed
     _drop_unobserved_signals(model, {item.get("node_id") for item in suppressed})
@@ -77,11 +95,9 @@ def apply_exceptions(model: RepoModel) -> list[dict]:
 def load_exceptions(root: Path) -> tuple[list[dict], str]:
     usable: list[dict] = []
     errors: list[str] = []
-    for relative in EXCEPTION_FILES:
-        path = Path(root) / relative
-        if not path.is_file():
-            continue
-        batch, error = _read_exception_file(path, relative)
+    for path in _exception_paths(Path(root)):
+        relative = path.relative_to(root) if path.is_relative_to(root) else path
+        batch, error = _read_exception_file(path, Path(relative))
         if error:
             errors.append(error)
             continue
@@ -143,39 +159,77 @@ def _read_exception_file(path: Path, relative: Path) -> tuple[list[dict], str]:
         raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as exc:
         return [], f"{label} was not applied: {exc}"
-    if not isinstance(raw, dict):
-        return [], f"{label} was not applied: the document must be a mapping"
-    entries = raw.get("exceptions") or []
+    if isinstance(raw, list):
+        entries = raw
+    elif isinstance(raw, dict):
+        entries = _field(raw, "exceptions", "exception", "items") or []
+        if isinstance(entries, dict):
+            entries = [entries]
+    else:
+        return [], f"{label} was not applied: the document must be a mapping or a list"
     if not isinstance(entries, list):
         return [], f"{label} was not applied: exceptions must be a list"
     usable = []
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        status = str(entry.get("status") or "false_positive").lower().replace(" ", "_")
-        reason = " ".join(str(entry.get("reason") or "").split())
+        status = str(_field(entry, "status") or "false_positive").lower().replace(" ", "_").replace("-", "_")
+        reason = " ".join(str(_field(entry, "reason", "why", "note") or "").split())
         if status not in ACCEPTED or len(reason) < MIN_REASON:
             continue
+        file_value = str(_field(entry, "file", "path", "location") or "").replace("\\", "/").strip()
+        line_value = _field(entry, "line", "lineno")
+        if line_value in (None, "") and ":" in file_value:
+            maybe_file, maybe_line = file_value.rsplit(":", 1)
+            if maybe_line.isdigit():
+                file_value, line_value = maybe_file, maybe_line
         usable.append(
             {
-                "fingerprint": str(entry.get("fingerprint") or ""),
-                "rule": str(entry.get("rule") or "").upper(),
-                "file": str(entry.get("file") or "").replace("\\", "/"),
-                "line": _line(entry.get("line")),
-                "evidence": " ".join(str(entry.get("evidence") or "").split()),
-                "scope": str(entry.get("scope") or "finding"),
+                "fingerprint": str(_field(entry, "fingerprint", "id") or ""),
+                "rule": _rule(_field(entry, "rule", "rules", "control")),
+                "file": file_value.lstrip("./"),
+                "line": _line(line_value),
+                "evidence": " ".join(str(_field(entry, "evidence") or "").split()),
+                "scope": str(_field(entry, "scope") or "finding").lower(),
                 "reason": reason,
-                "by": str(entry.get("by") or "remediation"),
+                "by": str(_field(entry, "by", "author") or "remediation"),
                 "status": "false_positive",
             }
         )
     return usable, ""
 
 
-def _match(observation: dict, entries: list[dict], marks: list[tuple[set[str] | None, str]]) -> dict | None:
-    rule = str(observation.get("rule") or "").upper()
-    file = str(observation.get("file") or "").replace("\\", "/")
-    line = observation.get("line")
+def _exception_paths(root: Path) -> list[Path]:
+    found: list[Path] = []
+    seen: set[Path] = set()
+    names = {"pathfinder-exceptions.yml", "pathfinder-exceptions.yaml"}
+    candidates = [root / relative for relative in EXCEPTION_FILES]
+    candidates.append(root / ".github" / "pathfinder-exceptions.yml")
+    if root.is_dir():
+        for path in root.rglob("*"):
+            if not path.is_file() or path.name.lower() not in names:
+                continue
+            if any(part in {".git", "node_modules", "venv", ".venv", "__pycache__", "dist", "build", "out", "data", ".pytest_cache"} for part in path.parts):
+                continue
+            candidates.append(path)
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            key = path.resolve()
+        except OSError:
+            key = path
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(path)
+    return found
+
+
+def _match(root: Path, observation: dict, entries: list[dict], marks: list[tuple[set[str] | None, str]]) -> dict | None:
+    rule = _rule(observation.get("rule"))
+    file = _normalize_file(observation.get("file"))
+    line = _line(observation.get("line"))
     evidence = " ".join(str(observation.get("evidence") or "").split())
     for rules, reason in marks:
         if rules and rule not in rules:
@@ -184,19 +238,74 @@ def _match(observation: dict, entries: list[dict], marks: list[tuple[set[str] | 
     for entry in entries:
         if entry["fingerprint"] and entry["fingerprint"] == observation.get("fingerprint"):
             return entry
-        if entry["rule"] and entry["rule"] != rule:
-            continue
-        if entry["file"] and entry["file"] != file:
-            continue
-        if not entry["rule"] or not entry["file"]:
+        if not entry["rule"] or entry["rule"] != rule or not _files_match(entry["file"], file):
             continue
         if entry["scope"] == "file":
             return entry
-        if entry["line"] and entry["line"] == line:
-            return entry
         if entry["evidence"] and (entry["evidence"] in evidence or evidence in entry["evidence"]):
             return entry
+        if entry["line"] and line and abs(line - entry["line"]) <= LINE_WINDOW:
+            return entry
+        if entry["line"] and _text_near(root, observation.get("file"), entry["line"], evidence):
+            return entry
     return None
+
+
+def _near_matched(observation: dict, matched: list[tuple[dict, dict]]) -> dict | None:
+    rule = _rule(observation.get("rule"))
+    file = _normalize_file(observation.get("file"))
+    line = _line(observation.get("line"))
+    if not rule or not file or not line:
+        return None
+    for other, match in matched:
+        if _rule(other.get("rule")) != rule or _normalize_file(other.get("file")) != file:
+            continue
+        other_line = _line(other.get("line"))
+        if other_line and abs(line - other_line) <= LINE_WINDOW:
+            return match
+    return None
+
+
+def _files_match(entry_file: str, observation_file: str) -> bool:
+    left = _normalize_file(entry_file).lower()
+    right = _normalize_file(observation_file).lower()
+    if not left or not right:
+        return False
+    return left == right or right.endswith("/" + left) or left.endswith("/" + right)
+
+
+def _text_near(root: Path, file: str | None, line: int | None, evidence: str) -> bool:
+    if not file or not line or len(evidence) < 8:
+        return False
+    path = Path(root) / str(file)
+    try:
+        rows = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return False
+    start = max(0, line - LINE_WINDOW - 1)
+    stop = min(len(rows), line + LINE_WINDOW)
+    window = " ".join(" ".join(rows[start:stop]).split())
+    return evidence in window or any(len(piece) >= 8 and piece in evidence for piece in (" ".join(row.split()) for row in rows[start:stop]))
+
+
+def _field(entry: dict, *names: str):
+    lowered = {str(key).lower(): value for key, value in entry.items()}
+    for name in names:
+        if name in lowered and lowered[name] not in (None, ""):
+            return lowered[name]
+    return None
+
+
+def _rule(value) -> str:
+    text = re.sub(r"[\s_-]", "", str(value or "").upper())
+    numbered = re.fullmatch(r"([A-Z]+?)0*(\d+)", text)
+    if numbered:
+        return f"{numbered.group(1)}{int(numbered.group(2)):02d}"
+    return text
+
+
+def _normalize_file(value) -> str:
+    return str(value or "").replace("\\", "/").strip().lstrip("./")
 
 
 def _marks_for(root: Path, file: str | None, line, texts: dict[str, dict[int, list[tuple[set[str] | None, str]]]]) -> list[tuple[set[str] | None, str]]:

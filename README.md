@@ -117,7 +117,7 @@ git push
 The workflow runs on pull requests and on pushes to `main` or `master`. The job checks the application out, then runs:
 
 ```yaml
-uses: TemTech-Solutions/attack-path-elimination@e0b0be88313696dc4a2e8e8d4059b35f83ab8f6d
+uses: TemTech-Solutions/attack-path-elimination@93268821c88ffe1e5b6bab91e493c3c8ed9187b9
 ```
 
 That ref is a full commit SHA. The action refuses a branch or a tag before it analyzes anything, because a branch or tag can move after review. The published hook in this repository is rewritten to the new commit when `main` moves. A repository that already committed an older SHA keeps running that commit until someone replaces the workflow.
@@ -134,7 +134,7 @@ Optional inputs, if you call the action yourself instead of copying the hook:
 | `out` | `attack-paths-report` | Where the HTML, JSON, and comment are written |
 | `comment` | `true` | Update the pull-request comment. Set `false` to keep the artifact only |
 
-Open **Actions**, then the **Attack paths** run. The summary lists the chains. Download `attack-path-report` and open `report.html`, `graph.html`, and `threat-model.html`.
+Open **Actions**, then the **Attack paths** run. The log and the job summary list the work queue: every critical path, every high path, and the medium walks that connect an entry to an asset, each with the file, the line, and what to remove. Critical and high walks are also file annotations on that run. Download `attack-path-report` and open `report.html`, `graph.html`, and `threat-model.html` for the full review, including lower signals.
 
 There is also a local installer: `python -m pathfinder install path\to\repository-to-scan` writes the same GitHub workflow. `--platform gitlab` writes the GitLab include. `--platform azure` writes the Azure DevOps pipeline.
 
@@ -261,27 +261,19 @@ severity: critical
 
 A structural hit stays until the evidence is gone or the calling repository records an exception. The exception belongs to the repository that runs the action. It is not stored in `TemTech-Solutions/attack-path-elimination`.
 
-Add `pathfinder-exceptions.yml` to that repository and commit it. The root is the file list on the repository home page, the same list that contains `README.md` and the `.github` folder. The filename has no leading dot.
+Add `pathfinder-exceptions.yml` to that repository and commit it. Put it at the root, next to `README.md`, or in any folder. The scan finds the file. The filename has no leading dot.
 
-```text
-calling-repository/
-  README.md
-  .github/
-    workflows/
-      attack-paths.yml
-  pathfinder-exceptions.yml
-```
-
-GitHub, GitLab, and Azure DevOps can add that file from the browser. Copy `rule`, `file`, and `line` from the report. The reason must be at least 8 characters. A blank reason does not hide a finding. If the file cannot be read, nothing is suppressed.
+Each entry is one issue. It needs the file, the rule, the line, and a reason of at least 8 characters. A blank reason does not hide a finding. If the file cannot be read, nothing from that file is suppressed.
 
 ```yaml
 exceptions:
-  - rule: APP05
-    file: admin.rb
+  - file: admin.rb
+    rule: APP05
     line: 2
     reason: Sandbox helper, not a production entry
-    by: remediation
 ```
+
+That skips the APP05 issue at that line in `admin.rb`. `src/admin.rb` matches `admin.rb`. `APP5` and `APP05` are the same rule. A line a few lines from the report still matches that same issue. Another finding in the same file stays.
 
 The same mark can sit in the source of the calling repository, on that line or on the comment line above it:
 

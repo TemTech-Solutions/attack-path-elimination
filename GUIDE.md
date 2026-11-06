@@ -43,7 +43,7 @@ Push the workflow to `main` or `master`. It also runs when a pull request is ope
 The installed job does two things. It checks out the application repository with `actions/checkout` pinned to a full commit SHA. It then runs:
 
 ```yaml
-uses: TemTech-Solutions/attack-path-elimination@2470dabb0a81f0e193bb44539dd0bde75719b7d8
+uses: TemTech-Solutions/attack-path-elimination@93268821c88ffe1e5b6bab91e493c3c8ed9187b9
 ```
 
 That value is a full commit SHA. The action refuses a branch or a tag, so a workflow that says `@main` or `@v1` fails before it analyzes anything. A push to `main` of this repository rewrites the published hook to that commit. A repository that already committed an older SHA keeps running that commit until someone copies the new hook.
@@ -56,9 +56,9 @@ To keep the artifact and skip the comment, call the action with `comment: "false
 
 Open the repository on GitHub and go to **Actions**. Open the **Attack paths** run.
 
-- The run summary lists the chains.
+- The log and the run summary list the work queue: critical paths, high paths, and the medium walks that connect an entry to an asset. Each one shows the file, the line, and what to remove. Critical and high walks are file annotations on the run.
 - Download the `attack-path-report` artifact.
-- Open `report.html` for the ranked chains, `graph.html` for the graph, and `threat-model.html` for the grouped threat model.
+- Open `report.html` for the ranked chains, `graph.html` for the graph, and `threat-model.html` for the grouped threat model. Those pages keep the full review, including signals below the work queue.
 - If the run came from a pull request, the same short summary is posted as one comment. Later runs update that comment. The comment is marked `<!-- pathfinder-attack-paths -->`.
 
 The HTML files open in a browser. They do not need the Python process to stay running.
@@ -277,27 +277,25 @@ A chain counts as gone only when its narrative changes or disappears. Renaming a
 
 A finding stays while the structural evidence stays. When the remediation team has reviewed a hit and it is a false positive, record it in the repository that runs the action. The TemTech repository does not keep that list.
 
-Open the calling repository. The root is the file list on its home page, the same list that contains `README.md` and `.github`. Add `pathfinder-exceptions.yml` there and commit it. The filename has no leading dot, and the workflow directory is a different file: `.github/workflows/attack-paths.yml` only runs the scan.
+Open the calling repository and commit `pathfinder-exceptions.yml`. The root, next to `README.md`, is the usual place. A copy in any other folder is still read. `.github/workflows/attack-paths.yml` only runs the scan.
 
 ```text
 calling-repository/
   README.md
-  .github/
-    workflows/
-      attack-paths.yml
   pathfinder-exceptions.yml
 ```
 
-GitHub, GitLab, and Azure DevOps can add the file from the browser. Copy the rule, file, and line from the report. The reason must be at least 8 characters.
+Each entry is one issue. It needs the file, the rule, the line, and a reason of at least 8 characters.
 
 ```yaml
 exceptions:
-  - rule: APP05
-    file: admin.rb
+  - file: admin.rb
+    rule: APP05
     line: 2
     reason: Sandbox helper, not a production entry
-    by: remediation
 ```
+
+That skips the APP05 issue at that line. The report path `src/admin.rb` matches `admin.rb`. `APP5` and `APP05` are the same rule. A line a few lines from the report still matches that same issue. Another finding in the file stays. A file name with no rule and no line does not clear the file.
 
 The same mark can sit on the line in that repository, or on the comment line directly above it:
 

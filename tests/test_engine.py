@@ -433,8 +433,17 @@ def test_remediation_false_positives_are_left_out(tmp_path: Path):
     assert any("0.0.0.0" in (item.get("evidence") or "") for item in first["findings"])
     hit = next(item for item in first["findings"] if item.get("rule") == "APP05" and item.get("file") == "admin.rb")
     (tmp_path / "other.rb").write_text("get '/admin/other' do\n  system(params[:cmd])\nend\n", encoding="utf-8")
-    (tmp_path / "pathfinder-exceptions.yml").write_text(
-        "exceptions:\n  - rule: APP05\n    file: other.rb\n    line: 1\n    reason: Fixture helper kept for the lab\n",
+    (tmp_path / "loose.rb").write_text("get '/admin/loose' do\n  system(params[:cmd])\nend\n", encoding="utf-8")
+    (tmp_path / "keep.rb").write_text(
+        "get '/admin/keep' do\n  system(params[:cmd])\nend\n" + ("\n" * 30) + "def later\n  system(params[:other])\nend\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "pathfinder-exceptions.yml").write_text(
+        "exceptions:\n"
+        "  - rule: APP5\n    file: other.rb\n    line: 2\n    reason: Fixture helper kept for the lab\n"
+        "  - file: loose.rb\n    reason: Lab double, not a production route\n"
+        "  - rule: APP05\n    file: keep.rb\n    line: 2\n    reason: First helper only, the later call stays\n",
         encoding="utf-8",
     )
     assert main(["except", str(tmp_path), "--rule", "APP05", "--file", "admin.rb", "--line", str(hit["line"]), "--reason", "Approved test double for the admin console", "--by", "remediation"]) == 0
@@ -442,6 +451,10 @@ def test_remediation_false_positives_are_left_out(tmp_path: Path):
     second = analyze(tmp_path)
     assert not any(item.get("rule") == "APP05" and item.get("file") == "admin.rb" for item in second["findings"])
     assert not any(item.get("rule") == "APP05" and item.get("file") == "other.rb" for item in second["findings"])
+    assert any(item.get("file") == "loose.rb" for item in second["findings"])
+    assert any(item.get("rule") == "APP05" and item.get("file") == "keep.rb" and (item.get("line") or 0) > 12 for item in second["findings"])
+    assert not any(item.get("rule") == "APP05" and item.get("file") == "keep.rb" and (item.get("line") or 0) <= 12 for item in second["findings"])
+    assert any("0.0.0.0" in (item.get("evidence") or "") for item in second["findings"])
     assert any(item.get("file") == "admin.rb" and item.get("rule") == "APP05" for item in second["suppressed"])
     assert not any(item.get("rule") == "APP05" and item.get("file") == "marked.rb" for item in second["findings"])
     assert any(item.get("file") == "marked.rb" for item in second["suppressed"])
