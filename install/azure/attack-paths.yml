@@ -31,7 +31,7 @@ steps:
       TOOL="$(Agent.TempDirectory)/pathfinder-tool"
       git init "$TOOL"
       git -C "$TOOL" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
-      git -C "$TOOL" fetch --depth 1 origin 06b35d48f71b774a3ec08f19dc26606e979a0d0d
+      git -C "$TOOL" fetch --depth 1 origin a8bad07264376805db760debfb0cf4d00ddab45f
       git -C "$TOOL" checkout --detach FETCH_HEAD
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
