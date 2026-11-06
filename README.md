@@ -129,7 +129,7 @@ uses: TemTech-Solutions/attack-path-elimination@v1.0.2
 **Pinned SHA.** The workflow file copied above is already pinned to a full commit hash. A short hash does not run.
 
 ```yaml
-uses: TemTech-Solutions/attack-path-elimination@0cc6d0790e6951836e741601fe7e003675ee647d
+uses: TemTech-Solutions/attack-path-elimination@06b35d48f71b774a3ec08f19dc26606e979a0d0d
 ```
 
 A later commit on `main` leaves that line on the same hash. Replace the hash to move to a newer build. A push to `main` of this repository rewrites the published hook to the new commit. A repository that already committed an older hash keeps that hash until someone replaces the workflow.

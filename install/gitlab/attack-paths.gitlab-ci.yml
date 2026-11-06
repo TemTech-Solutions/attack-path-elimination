@@ -10,7 +10,7 @@ attack-paths:
   script:
     - git init "$CI_PROJECT_DIR/.pathfinder-tool"
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
-    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" fetch --depth 1 origin 0cc6d0790e6951836e741601fe7e003675ee647d
+    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" fetch --depth 1 origin 06b35d48f71b774a3ec08f19dc26606e979a0d0d
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" checkout --detach FETCH_HEAD
     - python -m pip install --upgrade pip
     - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
