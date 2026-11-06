@@ -94,6 +94,30 @@
   }
   code { color: #d6e4ff; }
   a { color: var(--accent); }
+  .finding {
+    width: 100%;
+    text-align: left;
+    color: inherit;
+    background: #10192d;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin: 8px 0 0;
+    cursor: pointer;
+  }
+  .finding.open, .finding:hover { border-color: var(--accent); }
+  .finding h3 { margin: 0 0 8px; font-size: 15px; }
+  .triage { display: grid; grid-template-columns: 72px 1fr; gap: 4px 8px; margin: 0; }
+  .triage dt { color: var(--muted); }
+  .triage dd { margin: 0; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  .detail { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  pre.exception {
+    white-space: pre-wrap;
+    background: #0c1222;
+    border-radius: 8px;
+    padding: 8px;
+    margin: 6px 0 0;
+  }
 </style>
 </head>
 <body>
@@ -116,6 +140,9 @@
       <div class="factors" id="factors"></div>
       <h3>What to remove</h3>
       <ul id="recs"></ul>
+      <h3>Findings on this path</h3>
+      <p class="muted">Each card is one detection. File, rule, and line stay visible so a different finding can be triaged on its own.</p>
+      <div id="findings"></div>
     </section>
     <section class="panel" id="detail"><p class="muted">Select a component.</p></section>
   </div>
@@ -174,6 +201,7 @@ const objectives = document.getElementById("objectives");
 
 let selected = 0;
 let showAll = false;
+let openFinding = "";
 const pathList = document.getElementById("path-list");
 const chainEl = document.getElementById("chain");
 const banner = document.getElementById("banner");
@@ -191,7 +219,7 @@ function renderList() {
     const text = document.createElement("div");
     text.textContent = path.narrative;
     button.appendChild(text);
-    button.addEventListener("click", () => { selected = index; render(); });
+    button.addEventListener("click", () => { selected = index; openFinding = ""; render(); });
     pathList.appendChild(button);
   });
   if (!data.paths.length) {
@@ -224,9 +252,14 @@ function renderChain() {
     where.className = "muted";
     where.textContent = [hop.rule, hop.tier, hop.file, hop.line].filter(Boolean).join(" · ");
     card.appendChild(where);
-    card.addEventListener("click", () => renderDetail(hop.node_id, path));
+    card.addEventListener("click", () => {
+      openFinding = findingKey(hop);
+      renderDetail(hop.node_id, path);
+      renderFindings(path);
+    });
     chainEl.appendChild(card);
   });
+  renderFindings(path);
   const factors = document.getElementById("factors");
   factors.textContent = "";
   [["Exposure", path.exposure], ["Privilege", path.privilege], ["Asset", path.asset], ["Exploitability", path.exploitability], ["Score", path.score]].forEach(([label, value]) => {
@@ -251,9 +284,21 @@ function renderChain() {
 function renderDetail(nodeId, path) {
   const detail = document.getElementById("detail");
   detail.textContent = "";
+  const chosen = path && pathFindings(path).find((item) => findingKey(item) === openFinding);
+  if (chosen) {
+    const evidenceTitle = document.createElement("h3");
+    evidenceTitle.textContent = "Selected finding";
+    detail.appendChild(evidenceTitle);
+    detail.appendChild(triageBlock(chosen));
+    if (chosen.evidence) {
+      const evidence = document.createElement("p");
+      evidence.textContent = "Evidence: " + chosen.evidence;
+      detail.appendChild(evidence);
+    }
+  }
   const node = nodes[nodeId];
   if (!node) {
-    detail.textContent = "No component selected.";
+    if (!chosen) detail.appendChild(document.createTextNode("No component selected."));
     return;
   }
   const heading = document.createElement("h2");
@@ -298,18 +343,113 @@ function renderDetail(nodeId, path) {
     list.appendChild(li);
   });
   detail.appendChild(list);
-  if (path) {
-    const evidenceTitle = document.createElement("h3");
-    evidenceTitle.textContent = "Evidence on this path";
-    detail.appendChild(evidenceTitle);
-    const evidence = document.createElement("ul");
-    path.findings.forEach((finding) => {
-      const li = document.createElement("li");
-      li.textContent = finding.rule + " " + finding.title + " (" + finding.file + ":" + finding.line + ")";
-      evidence.appendChild(li);
-    });
-    detail.appendChild(evidence);
+}
+
+function findingKey(item) {
+  return [item.rule || "", item.file || "", String(item.line || ""), item.evidence || "", item.title || ""].join("|");
+}
+
+function pathFindings(path) {
+  const items = [];
+  const seen = new Set();
+  const places = new Set();
+  function push(item) {
+    if (!item || !item.rule || !item.file) return;
+    const place = [item.rule || "", item.file || "", String(item.line || "")].join("|");
+    const key = place + "|" + (item.evidence || "");
+    if (seen.has(key)) return;
+    if (!item.evidence && places.has(place)) return;
+    seen.add(key);
+    places.add(place);
+    items.push(item);
   }
+  (path.findings || []).forEach(push);
+  (path.hops || []).forEach((hop) => push({
+    rule: hop.rule,
+    title: hop.label,
+    file: hop.file,
+    line: hop.line,
+    evidence: hop.evidence,
+    recommendation: hop.recommendation,
+    node_id: hop.node_id
+  }));
+  return items;
+}
+
+function nodeFor(finding, path) {
+  if (finding.node_id) return finding.node_id;
+  const hop = (path.hops || []).find((item) =>
+    (item.rule || "") === (finding.rule || "") &&
+    (item.file || "") === (finding.file || "") &&
+    String(item.line || "") === String(finding.line || "")
+  );
+  return hop && hop.node_id;
+}
+
+function triageBlock(finding) {
+  const list = document.createElement("dl");
+  list.className = "triage";
+  [["File", finding.file || "not recorded"], ["Rule", finding.rule || "not recorded"], ["Line", finding.line || "not recorded"]].forEach(([label, value]) => {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const data = document.createElement("dd");
+    data.textContent = String(value);
+    list.appendChild(term);
+    list.appendChild(data);
+  });
+  return list;
+}
+
+function renderFindings(path) {
+  const root = document.getElementById("findings");
+  root.textContent = "";
+  if (!path) return;
+  const items = pathFindings(path);
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "This path has no separate finding to expand.";
+    root.appendChild(empty);
+    return;
+  }
+  items.forEach((finding) => {
+    const key = findingKey(finding);
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "finding" + (openFinding === key ? " open" : "");
+    const heading = document.createElement("h3");
+    heading.textContent = finding.title || finding.rule || "Finding";
+    card.appendChild(heading);
+    card.appendChild(triageBlock(finding));
+    if (openFinding === key) {
+      const extra = document.createElement("div");
+      extra.className = "detail";
+      if (finding.evidence) {
+        const evidence = document.createElement("p");
+        evidence.textContent = "Evidence: " + finding.evidence;
+        extra.appendChild(evidence);
+      }
+      if (finding.recommendation) {
+        const remove = document.createElement("p");
+        remove.textContent = "What to remove: " + finding.recommendation;
+        extra.appendChild(remove);
+      }
+      const record = document.createElement("p");
+      record.textContent = "For the exception record";
+      extra.appendChild(record);
+      const snippet = document.createElement("pre");
+      snippet.className = "exception";
+      snippet.textContent = "rule: " + (finding.rule || "") + "\nfile: " + (finding.file || "") + "\nline: " + (finding.line || "");
+      extra.appendChild(snippet);
+      card.appendChild(extra);
+    }
+    card.addEventListener("click", () => {
+      openFinding = openFinding === key ? "" : key;
+      renderFindings(path);
+      renderDetail(nodeFor(finding, path), path);
+    });
+    root.appendChild(card);
+  });
 }
 
 function render() {

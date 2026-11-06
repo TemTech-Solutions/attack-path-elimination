@@ -163,6 +163,8 @@ def test_html_and_comment_carry_the_chain(payment_repo: Path):
     narrative = next(path["narrative"] for path in result["paths"] if path["category"] == "cloud_escalation")
     assert narrative in html
     assert "Risk score" in html
+    assert "Findings on this path" in html
+    assert "For the exception record" in html
     comment = pr_comment(result)
     assert "Auth bypass" in comment
     assert "Static review only" in comment
