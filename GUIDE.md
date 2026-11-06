@@ -44,21 +44,11 @@ Push the workflow to `main` or `master`. It also runs when a pull request is ope
 
 The installed job does two things. It checks out the application repository with `actions/checkout` pinned to a full commit SHA. It then runs this action. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
 
-**Latest tag.** On the [Marketplace listing](https://github.com/marketplace/actions/attack-path-elimination), **Use latest version** writes the current release tag:
+Before you add or update that line, open the [Marketplace listing](https://github.com/marketplace/actions/attack-path-elimination) and confirm the latest release shown there. Use that release. A tag or hash copied from an older page stays on the older release until you change the workflow.
 
-```yaml
-uses: TemTech-Solutions/attack-path-elimination@v1.0.2
-```
+**Release tag.** Copy the latest release tag from that Marketplace page onto the `uses` line. Check the page again each time you update the workflow, and use the latest release it shows.
 
-`@v1.0.2` stays on that release. `@v1` also runs when that major tag exists, and it follows the release the tag points at. A newer Marketplace release leaves a workflow that still says `@v1.0.2` on that release.
-
-**Pinned SHA.** The copied workflow file uses the full commit hash. A short hash does not run.
-
-```yaml
-uses: TemTech-Solutions/attack-path-elimination@0cc6d0790e6951836e741601fe7e003675ee647d
-```
-
-A later commit on `main` leaves that line on the same hash. Replace the hash to move to a newer build. A push to `main` of this repository rewrites the published hook to the new commit. A repository that already committed an older hash keeps that hash until someone copies the new hook.
+**Pinned SHA.** You can pin the same line to the full 40-character commit hash of the release you just verified. A short hash does not run. Copy the hash from that Marketplace release. A later commit on `main` leaves a pinned line on the same hash until you replace it. The workflow file from this repository is pinned to a full commit hash. Confirm on Marketplace that it still matches the latest release before you rely on it.
 
 The job needs `contents: read`. Pull-request comments also need `pull-requests: write`. The Action upgrades pip, installs its own requirements, analyzes `.`, uploads `attack-path-report`, writes the chains into the job summary, and on a pull request updates one comment.
 
