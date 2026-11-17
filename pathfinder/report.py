@@ -14,6 +14,45 @@ def render_html(result: dict) -> str:
     return template.replace("__PAYLOAD__", payload)
 
 
+def runtime_summary(result: dict) -> str:
+    """Short result for the CI log, before the HTML reports."""
+    scorecard = result.get("scorecard") or {}
+    paths = list(result.get("paths") or [])
+    critical = [path for path in paths if path.get("band") == "Critical"]
+    high = [path for path in paths if path.get("band") == "High"]
+    medium = sum(1 for path in paths if path.get("band") == "Medium")
+    findings = scorecard.get("findings", len(result.get("findings") or []))
+    removals = int(((result.get("unused") or {}).get("summary") or {}).get("removals") or 0)
+    skipped = _exceptions_skipped(result)
+    lines = ["## Attack path summary", "", "What was found", ""]
+    lines.append(
+        f"{len(critical)} critical path(s), {len(high)} high path(s), and {medium} medium path(s). "
+        f"{findings} finding(s) stayed in the report. "
+        f"{removals} unused private symbol(s) can be removed."
+    )
+    lead = (critical or high or paths)
+    if lead:
+        lines.append("")
+        lines.append(lead[0].get("narrative") or "")
+    lines.append("")
+    lines.append(f"Exceptions skipped: {skipped}")
+    lines.append("These findings were left out because a recorded exception matched them.")
+    lines.append("")
+    lines.append("The file, the line, and the exception record are in report.html, graph.html, and threat-model.html.")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _exceptions_skipped(result: dict) -> int:
+    """Findings left out of the published report by a recorded exception."""
+    suppressed = len(result.get("suppressed") or [])
+    scan = result.get("exception_scan") or {}
+    if scan:
+        return suppressed + int(scan.get("removed") or 0)
+    unused_omitted = int(((result.get("unused") or {}).get("summary") or {}).get("omitted") or 0)
+    return suppressed + unused_omitted
+
+
 def pr_comment(result: dict) -> str:
     """Work queue for a pipeline log. Critical, high, and a short set of medium walks."""
     scorecard = result.get("scorecard") or {}
@@ -319,6 +358,7 @@ def write_outputs(result: dict, directory: Path) -> dict[str, Path]:
     report_path = directory / "graph-report.md"
     json_path = directory / "graph.json"
     comment_path = directory / "pr-comment.md"
+    summary_path = directory / "summary.md"
     cypher_path = directory / "graph.cypher"
     html_path.write_text(render_html(result), encoding="utf-8")
     graph_path.write_text(render_graph_html(result), encoding="utf-8")
@@ -326,6 +366,7 @@ def write_outputs(result: dict, directory: Path) -> dict[str, Path]:
     report_path.write_text(render_graph_report(result), encoding="utf-8")
     json_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     comment_path.write_text(pr_comment(result), encoding="utf-8")
+    summary_path.write_text(runtime_summary(result), encoding="utf-8")
     cypher_path.write_text(to_cypher(result), encoding="utf-8")
     return {
         "html": html_path,
@@ -334,6 +375,7 @@ def write_outputs(result: dict, directory: Path) -> dict[str, Path]:
         "report": report_path,
         "json": json_path,
         "comment": comment_path,
+        "summary": summary_path,
         "cypher": cypher_path,
     }
 

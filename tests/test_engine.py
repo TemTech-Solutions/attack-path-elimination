@@ -175,6 +175,11 @@ def test_html_and_comment_carry_the_chain(payment_repo: Path):
     comment = pr_comment(result)
     assert "Auth bypass" in comment
     assert "Static review only" in comment
+    from pathfinder.report import runtime_summary
+    summary = runtime_summary(result)
+    assert "What was found" in summary
+    assert "Exceptions skipped:" in summary
+    assert "report.html" in summary
     assert "Threat model" in comment
     assert "graph.html" in html
     graph = result["graph"]
@@ -292,6 +297,8 @@ def test_install_hook_writes_into_the_other_repo(tmp_path: Path):
     assert f"uses: TemTech-Solutions/attack-path-elimination@{PUBLIC_REF}" in text
     assert "exception-scan:" in text
     assert 'exception_scan: "true"' in text
+    assert "Scan summary" in text
+    assert "attack-paths-report/summary.md" in text
     assert "attack-path-review" in text
     assert "https://github.com/TemTech-Solutions/attack-path-elimination" in text
     assert "actions/checkout@11d5960a326750d5838078e36cf38b85af677262" in text

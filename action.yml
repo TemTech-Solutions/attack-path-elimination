@@ -73,14 +73,16 @@ runs:
         path: ${{ inputs.out }}
         if-no-files-found: error
 
-    - name: Write the chain into the job summary
+    - name: Write the scan summary
       shell: bash
       run: |
-        {
-          echo "## Attack paths"
-          echo
-          cat "${{ inputs.out }}/pr-comment.md"
-        } >> "$GITHUB_STEP_SUMMARY"
+        if [ -f "${{ inputs.out }}/summary.md" ]; then
+          cat "${{ inputs.out }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "## Attack paths" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          cat "${{ inputs.out }}/pr-comment.md" >> "$GITHUB_STEP_SUMMARY"
+        fi
 
     - name: Comment on the pull request
       if: ${{ inputs.comment == 'true' && github.event_name == 'pull_request' }}

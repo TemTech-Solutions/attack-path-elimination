@@ -17,6 +17,7 @@ attack-paths:
     - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
     - echo "Runtime scan validates confirmed findings and applies exception handling in the same run."
     - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --exception-scan
+    - cat attack-paths-report/summary.md
   artifacts:
     when: always
     paths:
@@ -25,4 +26,5 @@ attack-paths:
       - attack-paths-report/threat-model.html
       - attack-paths-report/graph-report.md
       - attack-paths-report/pr-comment.md
+      - attack-paths-report/summary.md
       - attack-paths-report/graph.json

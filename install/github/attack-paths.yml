@@ -23,6 +23,16 @@ jobs:
           comment: "false"
           artifact: attack-path-review
 
+      - name: Scan summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f attack-paths-report/summary.md ]; then
+            cat attack-paths-report/summary.md
+          else
+            echo "The scan did not write a summary."
+          fi
+
   exception-scan:
     needs: attack-paths
     runs-on: ubuntu-latest
@@ -35,3 +45,13 @@ jobs:
         with:
           exception_scan: "true"
           artifact: attack-path-report
+
+      - name: Scan summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f attack-paths-report/summary.md ]; then
+            cat attack-paths-report/summary.md
+          else
+            echo "The scan did not write a summary."
+          fi

@@ -91,6 +91,16 @@ jobs:
           comment: "false"
           artifact: attack-path-review
 
+      - name: Scan summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f attack-paths-report/summary.md ]; then
+            cat attack-paths-report/summary.md
+          else
+            echo "The scan did not write a summary."
+          fi
+
   exception-scan:
     needs: attack-paths
     runs-on: ubuntu-latest
@@ -103,6 +113,16 @@ jobs:
         with:
           exception_scan: "true"
           artifact: attack-path-report
+
+      - name: Scan summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f attack-paths-report/summary.md ]; then
+            cat attack-paths-report/summary.md
+          else
+            echo "The scan did not write a summary."
+          fi
 """
 
 
@@ -126,6 +146,7 @@ attack-paths:
     - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
     - echo "Runtime scan validates confirmed findings and applies exception handling in the same run."
     - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --exception-scan
+    - cat attack-paths-report/summary.md
   artifacts:
     when: always
     paths:
@@ -134,6 +155,7 @@ attack-paths:
       - attack-paths-report/threat-model.html
       - attack-paths-report/graph-report.md
       - attack-paths-report/pr-comment.md
+      - attack-paths-report/summary.md
       - attack-paths-report/graph.json
 """
 
@@ -179,6 +201,7 @@ steps:
       PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
       echo "Runtime scan validates confirmed findings and applies exception handling in the same run."
       PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan
+      cat "$(Build.ArtifactStagingDirectory)/attack-paths-report/summary.md"
     displayName: Analyze attack paths
 
   - task: PublishPipelineArtifact@1

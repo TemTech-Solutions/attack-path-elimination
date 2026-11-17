@@ -38,6 +38,7 @@ steps:
       PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
       echo "Runtime scan validates confirmed findings and applies exception handling in the same run."
       PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan
+      cat "$(Build.ArtifactStagingDirectory)/attack-paths-report/summary.md"
     displayName: Analyze attack paths
 
   - task: PublishPipelineArtifact@1
