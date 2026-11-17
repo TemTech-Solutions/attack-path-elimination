@@ -385,6 +385,86 @@ def path_is_excepted(path: dict, suppressed: list[dict]) -> bool:
     return bool(ruled) and all(hop_is_excepted(hop, suppressed) for hop in ruled)
 
 
+def observation_is_legitimate(item: dict, path_nodes: set, confirmed_files: set) -> bool:
+    """A finding stays when this checkout confirmed the file, the line, and the evidence.
+
+    A learned name stays only when it sits on a walk or in a file that already has a confirmed finding.
+    """
+    if not item.get("rule") or not item.get("file") or not item.get("line"):
+        return False
+    if not " ".join(str(item.get("evidence") or "").split()):
+        return False
+    if not item.get("learned"):
+        return True
+    if item.get("node_id") in path_nodes:
+        return True
+    return item.get("file") in confirmed_files
+
+
+def validate_published(result: dict) -> dict:
+    """Drop findings this CI run could not confirm. Record how many were left out."""
+    paths = list(result.get("paths") or [])
+    path_nodes = {node_id for path in paths for node_id in (path.get("node_ids") or [])}
+    for path in paths:
+        for hop in path.get("hops") or []:
+            if hop.get("node_id"):
+                path_nodes.add(hop["node_id"])
+    pool = list(result.get("findings") or []) + list(result.get("observations") or [])
+    confirmed_files = {
+        item.get("file")
+        for item in pool
+        if not item.get("learned") and item.get("file") and item.get("line") and item.get("rule") and " ".join(str(item.get("evidence") or "").split())
+    }
+
+    def keep(item: dict, seen: set) -> bool:
+        if not observation_is_legitimate(item, path_nodes, confirmed_files):
+            return False
+        key = (
+            item.get("rule") or "",
+            item.get("file") or "",
+            item.get("line"),
+            " ".join(str(item.get("evidence") or "").split()),
+        )
+        if key in seen:
+            return False
+        seen.add(key)
+        return True
+
+    checked = 0
+    omitted = 0
+
+    def select(items: list, tally: bool) -> list:
+        nonlocal checked, omitted
+        seen: set = set()
+        kept = []
+        for item in items or []:
+            if tally:
+                checked += 1
+            if keep(item, seen):
+                kept.append(item)
+            elif tally:
+                omitted += 1
+        return kept
+
+    result["findings"] = select(result.get("findings") or [], True)
+    result["observations"] = select(result.get("observations") or [], False)
+    for path in paths:
+        path["findings"] = select(path.get("findings") or [], False)
+    for node in (result.get("graph") or {}).get("nodes") or []:
+        node["findings"] = select(node.get("findings") or [], False)
+    scorecard = result.get("scorecard") or {}
+    if scorecard:
+        scorecard["findings"] = len(result["findings"])
+    summary = {
+        "checked": checked,
+        "kept": checked - omitted,
+        "omitted": omitted,
+        "note": "A finding is published only when this CI run confirmed the file, the line, and the evidence. A learned name is published only when it is on a walk or in a file that already has a confirmed finding.",
+    }
+    result["validation"] = summary
+    return summary
+
+
 def exception_scan(result: dict) -> dict:
     """Deep pass over a finished scan. Drop every specific exception from the published findings."""
     suppressed = list(result.get("suppressed") or [])
@@ -447,6 +527,7 @@ def exception_scan(result: dict) -> dict:
         summary["removals"] = len(kept_unused)
         result["unused"] = unused
     notes = exception_gaps(root, suppressed) if root else []
+    validate_published(result)
     result["exception_scan"] = {"removed": removed, "notes": notes}
     return result
 

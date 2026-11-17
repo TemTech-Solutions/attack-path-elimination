@@ -92,6 +92,12 @@ def pr_comment(result: dict) -> str:
     lines.extend(_unused_lines(result))
     lines.append("Open `report.html`, `graph.html`, and `threat-model.html` in the attack-path-report artifact for the full review.")
     lines.append("")
+    validation = result.get("validation") or {}
+    if validation:
+        lines.append(
+            f"Runtime validation kept {validation.get('kept', 0)} confirmed finding record(s) and left out {validation.get('omitted', 0)} that this scan could not confirm."
+        )
+        lines.append("")
     lines.append("Static review only. The change to make is deletion or constraint of the path, not a new alert.")
     suppressed = result.get("suppressed") or []
     if suppressed:

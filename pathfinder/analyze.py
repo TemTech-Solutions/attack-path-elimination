@@ -153,8 +153,12 @@ def analyze(target: Path) -> dict:
             "held": [],
             "held_omitted": 0,
         }
+    from pathfinder.exceptions import validate_published
     from pathfinder.query import attach_search
+    from pathfinder.threatmodel import attach_reviews
 
+    validate_published(packaged)
+    attach_reviews(packaged)
     return attach_search(packaged)
 
 

@@ -219,11 +219,12 @@ function card(threat, index) {
     drawPanel();
   });
   el.appendChild(title);
-  add(el, "p", "Why this is first: " + (threat.why || ""));
-  add(el, "p", threat.effect || "");
-  if (threat.recommendation) add(el, "p", "Next step: " + threat.recommendation);
   if (openId === id) {
     el.id = "open-threat";
+    if (threat.access) add(el, "p", threat.access);
+    add(el, "p", "Why this is first: " + (threat.why || ""));
+    add(el, "p", threat.effect || "");
+    if (threat.recommendation) add(el, "p", "Next step: " + threat.recommendation);
     el.appendChild(detail(threat));
   }
   return el;
@@ -234,7 +235,7 @@ function detail(threat) {
   box.className = "detail";
   add(box, "p", threat.narrative || "");
   const dread = threat.dread || {};
-  add(box, "p", "DREAD · damage " + show(dread.asset) + " · reproducibility " + (threat.reachability === "Local signal" ? "local" : "walk is in the files") + " · exploitability " + show(dread.exploitability) + " · affected users " + show(dread.exposure) + " · discoverability " + (threat.reachability === "Reachable from an entry" ? "entry is exposed" : "not an exposed entry"));
+  add(box, "p", threat.dread_text || ("DREAD · damage " + show(dread.asset) + " · reproducibility " + (threat.reachability === "Local signal" ? "local" : "walk is in the files") + " · exploitability " + show(dread.exploitability) + " · affected users " + show(dread.exposure) + " · discoverability " + (threat.reachability === "Reachable from an entry" ? "entry is exposed" : "not an exposed entry")));
   if ((threat.stride || []).length) add(box, "p", "STRIDE · " + threat.stride.join(", "));
   if (threat.pasta) add(box, "p", "PASTA · " + threat.pasta);
   const marked = (threat.hops || []).find((hop) => hop.fingerprint);
@@ -249,9 +250,9 @@ function detail(threat) {
       list.appendChild(li);
     });
     box.appendChild(list);
-    threat.hops.forEach((hop) => {
-      if (hop.rule && hop.file) box.appendChild(exceptionRecord(hop));
-    });
+    threat.hops.forEach((hop) => box.appendChild(exceptionRecord(hop)));
+  } else {
+    box.appendChild(exceptionRecord({ file: "", rule: "", line: "", evidence: threat.narrative || "" }));
   }
   if ((threat.remove || []).length > 1) {
     add(box, "p", "What to remove");

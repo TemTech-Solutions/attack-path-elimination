@@ -203,7 +203,7 @@
       <h3>What to remove</h3>
       <ul id="recs"></ul>
       <h3>Findings on this path</h3>
-      <p class="muted">Each card is one detection. File, rule, and line stay visible. Open a card to copy that one issue into <code>pathfinder-exceptions.yml</code>. Effect, STRIDE, and the walk are in the <a href="threat-model.html">threat model</a>.</p>
+      <p class="muted">Each card is one detection. File, rule, and line stay visible. Open a card for how an attacker uses it, the effect, the next step, and the exception record for <code>pathfinder-exceptions.yml</code>.</p>
       <div id="findings"></div>
     </section>
     <section class="panel" id="detail"><p class="muted">Select a component.</p></section>
@@ -460,7 +460,17 @@ function pathFindings(path) {
     line: hop.line,
     evidence: hop.evidence,
     recommendation: hop.recommendation,
-    node_id: hop.node_id
+    node_id: hop.node_id,
+    access: hop.access,
+    why: hop.why,
+    effect: hop.effect,
+    stride: hop.stride,
+    pasta: hop.pasta,
+    dread_text: hop.dread_text,
+    fingerprint: hop.fingerprint,
+    walk: hop.walk,
+    band: hop.band,
+    score: hop.score
   }));
   return items;
 }
@@ -543,7 +553,8 @@ function renderFindings(path) {
     head.type = "button";
     head.className = "finding-head";
     const heading = document.createElement("h3");
-    heading.textContent = finding.title || finding.rule || "Finding";
+    const band = finding.band ? finding.band + " " + (finding.score ?? "") + " · " : "";
+    heading.textContent = band + (finding.title || finding.rule || "Finding");
     head.appendChild(heading);
     head.appendChild(triageBlock(finding));
     if (finding.evidence) {
@@ -566,27 +577,36 @@ function renderFindings(path) {
 function findingDetail(finding) {
   const extra = document.createElement("div");
   extra.className = "detail";
+  addText(extra, "p", "", finding.access || "An attacker can use this finding on its own. Access stays on this component and does not depend on another file.");
+  addText(extra, "p", "", "Why this is first: " + (finding.why || "This scan confirmed the file and line."));
+  if (finding.effect) addText(extra, "p", "", finding.effect);
+  if (finding.recommendation) addText(extra, "p", "", "Next step: " + finding.recommendation);
   if (finding.evidence) {
-    const label = document.createElement("p");
-    label.textContent = "Evidence";
-    extra.appendChild(label);
     const evidence = document.createElement("pre");
     evidence.className = "exception";
     evidence.textContent = finding.evidence;
     extra.appendChild(evidence);
   }
-  if (finding.recommendation) {
-    const remove = document.createElement("p");
-    remove.textContent = "What to remove: " + finding.recommendation;
-    extra.appendChild(remove);
+  if (finding.dread_text) addText(extra, "p", "", finding.dread_text);
+  if ((finding.stride || []).length) addText(extra, "p", "", "STRIDE · " + finding.stride.join(", "));
+  if (finding.pasta) addText(extra, "p", "", "PASTA · " + finding.pasta);
+  if (finding.fingerprint) addText(extra, "p", "", "Exception id: " + finding.fingerprint + " · " + (finding.file || "") + (finding.line ? ":" + finding.line : ""));
+  const walk = finding.walk || [];
+  if (walk.length) {
+    addText(extra, "p", "", "Walk");
+    const list = document.createElement("ul");
+    walk.forEach((step) => {
+      const li = document.createElement("li");
+      li.textContent = step;
+      list.appendChild(li);
+    });
+    extra.appendChild(list);
   }
   const more = document.createElement("p");
-  more.appendChild(document.createTextNode("Effect, STRIDE, and the walk for this issue are in the "));
   const link = document.createElement("a");
   link.href = threatHref(finding);
-  link.textContent = "threat model";
+  link.textContent = "Open this issue in the threat model";
   more.appendChild(link);
-  more.appendChild(document.createTextNode("."));
   extra.appendChild(more);
   const row = document.createElement("div");
   row.className = "copyrow";

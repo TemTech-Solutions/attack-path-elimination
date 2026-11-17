@@ -260,7 +260,7 @@ def _review(item: dict, path: dict, result: dict) -> dict:
     gap = _gap(files, item["missing_controls"], learned, themes, hops)
     band = item["band"] or "Unscored"
     why = f"{band} {item['score']}. {reachability}. Exploitability {level}. {gap}"
-    return {
+    reviewed = {
         "severity": band,
         "reachability": reachability,
         "exploitability_level": level,
@@ -271,6 +271,9 @@ def _review(item: dict, path: dict, result: dict) -> dict:
         "recommendation": item["remove"][0] if item["remove"] else "",
         "learned": learned,
     }
+    reviewed["access"] = _access(item, reviewed["reachability"])
+    reviewed["dread_text"] = _dread_text(item, reviewed["reachability"])
+    return reviewed
 
 
 def _themes(path: dict, result: dict) -> set[str]:
@@ -353,6 +356,113 @@ def _gap(files: set[str], missing: list, learned: bool, themes: set[str], hops: 
     if learned or "review" in themes:
         return "This comes from the structure of this repository, not from a public vulnerability signature."
     return "The signal is local to this component. Confirm the file and line."
+
+
+def _access(item: dict, reachability: str) -> str:
+    """How an attacker uses this finding, on its own or by moving into another component."""
+    hops = list(item.get("hops") or [])
+    title = item.get("name") or "This finding"
+    primary = next((hop for hop in hops if hop.get("file")), {})
+    place = ""
+    if primary.get("file"):
+        place = str(primary["file"]) + (f":{primary['line']}" if primary.get("line") else "")
+    others = []
+    for hop in hops[1:]:
+        label = hop.get("label") or ""
+        if label and label not in others:
+            others.append(label)
+    if len(hops) >= 2 and others:
+        start = hops[0].get("label") or "this component"
+        located = f" The finding itself is at {place}." if place else ""
+        return (
+            f"An attacker can use {title} to move from {start} into {others[-1]}. "
+            f"That other component is in this repository or on the infrastructure this walk reaches.{located}"
+        )
+    where = f" at {place}" if place else ""
+    if reachability == "Reachable from an entry":
+        return (
+            f"An attacker can use {title}{where} on its own. "
+            f"The entry is exposed, so access does not depend on another component."
+        )
+    return (
+        f"An attacker can use {title}{where} on its own. "
+        f"Access stays on this component and does not depend on another file."
+    )
+
+
+def _dread_text(item: dict, reachability: str) -> str:
+    dread = item.get("dread") or {}
+    repro = "local" if reachability == "Local signal" else "walk is in the files"
+    discover = "entry is exposed" if reachability == "Reachable from an entry" else "not an exposed entry"
+    damage = dread.get("asset") or "not scored"
+    exploit = dread.get("exploitability") or "not scored"
+    users = dread.get("exposure") or "not scored"
+    return (
+        f"DREAD · damage {damage} · reproducibility {repro} · exploitability {exploit} "
+        f"· affected users {users} · discoverability {discover}"
+    )
+
+
+def attach_reviews(result: dict) -> dict:
+    """Copy the threat-model review onto every finding so each page can open the same record."""
+    threats = build_threat_model(result).get("threats") or []
+    by_place: dict[tuple, dict] = {}
+    for threat in threats:
+        for hop in threat.get("hops") or []:
+            by_place.setdefault((hop.get("rule") or "", hop.get("file"), hop.get("line")), threat)
+
+    def paint(item: dict) -> None:
+        if not isinstance(item, dict):
+            return
+        threat = by_place.get((item.get("rule") or "", item.get("file"), item.get("line")))
+        if threat is None and (item.get("title") or item.get("label") or item.get("rule")):
+            named = dict(item)
+            named.setdefault("title", item.get("label") or item.get("title") or item.get("rule"))
+            threat = _from_finding(named, result)
+        if not threat:
+            return
+        named = {
+            "name": item.get("title") or item.get("label") or threat.get("name") or "This finding",
+            "hops": threat.get("hops") or [],
+        }
+        item["access"] = _access(named, threat.get("reachability") or "")
+        item["why"] = threat.get("why") or ""
+        item["effect"] = threat.get("effect") or ""
+        item["stride"] = list(threat.get("stride") or [])
+        item["pasta"] = threat.get("pasta") or ""
+        item["dread_text"] = threat.get("dread_text") or ""
+        item["walk"] = [
+            " · ".join(
+                part
+                for part in (hop.get("label"), hop.get("rule"), _hop_place(hop), hop.get("evidence"))
+                if part
+            )
+            for hop in threat.get("hops") or []
+        ]
+        if not item.get("recommendation"):
+            item["recommendation"] = threat.get("recommendation") or ""
+        if not item.get("fingerprint") and item.get("rule"):
+            item["fingerprint"] = fingerprint(str(item.get("rule") or ""), str(item.get("file") or ""), str(item.get("evidence") or ""))
+
+    for finding in result.get("findings") or []:
+        paint(finding)
+    for observation in result.get("observations") or []:
+        paint(observation)
+    for path in result.get("paths") or []:
+        for hop in path.get("hops") or []:
+            paint(hop)
+        for finding in path.get("findings") or []:
+            paint(finding)
+    for node in (result.get("graph") or {}).get("nodes") or []:
+        for finding in node.get("findings") or []:
+            paint(finding)
+    return result
+
+
+def _hop_place(hop: dict) -> str:
+    if not hop.get("file"):
+        return ""
+    return str(hop["file"]) + (f":{hop['line']}" if hop.get("line") else "")
 
 
 def _effect(themes: set[str], dread: dict) -> str:

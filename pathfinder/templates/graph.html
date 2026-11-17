@@ -501,28 +501,50 @@ function pathCard(path, highlight) {
 function findingBlock(finding) {
   const card = document.createElement("article");
   card.className = "card";
-  const place = finding.file ? finding.file + (finding.line ? ":" + finding.line : "") : "";
-  add(card, "p", [finding.rule, finding.title, place].filter(Boolean).join(" · "));
-  if (finding.file || finding.rule) {
-    add(card, "p", "File " + (finding.file || "not recorded") + " · Rule " + (finding.rule || "not recorded") + " · Line " + (finding.line || "not recorded"));
+  const title = document.createElement("h3");
+  const band = finding.band ? finding.band + " " + (finding.score ?? "") + " · " : "";
+  title.textContent = band + (finding.title || finding.rule || "Finding");
+  title.style.cursor = "pointer";
+  const body = document.createElement("div");
+  body.hidden = true;
+  add(body, "p", finding.access || "An attacker can use this finding on its own. Access stays on this component and does not depend on another file.");
+  add(body, "p", "Why this is first: " + (finding.why || "This scan confirmed the file and line."));
+  if (finding.effect) add(body, "p", finding.effect);
+  if (finding.recommendation) add(body, "p", "Next step: " + finding.recommendation);
+  if (finding.evidence) add(body, "p", finding.evidence);
+  if (finding.dread_text) add(body, "p", finding.dread_text);
+  if ((finding.stride || []).length) add(body, "p", "STRIDE · " + finding.stride.join(", "));
+  if (finding.pasta) add(body, "p", "PASTA · " + finding.pasta);
+  if (finding.fingerprint) add(body, "p", "Exception id: " + finding.fingerprint);
+  const walk = finding.walk || [];
+  if (walk.length) {
+    add(body, "p", "Walk");
+    walk.forEach((step) => add(body, "p", step));
   }
-  if (finding.evidence) add(card, "p", finding.evidence);
-  if (finding.recommendation) add(card, "p", "What to remove: " + finding.recommendation);
-  if (finding.rule && finding.file) {
-    const link = document.createElement("a");
-    link.href = "threat-model.html#" + encodeURIComponent([finding.rule, finding.file, String(finding.line || "")].join("|"));
-    link.textContent = "Open this issue in the threat model";
-    const row = document.createElement("p");
-    row.appendChild(link);
-    card.appendChild(row);
-    add(card, "p", "For the exception record");
-    add(card, "p", "One issue in pathfinder-exceptions.yml. A reason needs at least 8 characters. A blank reason does not hide this finding.").className = "muted";
-    const line = finding.line === 0 || finding.line ? String(finding.line) : '""';
-    const snippet = document.createElement("pre");
-    snippet.className = "exception";
-    snippet.textContent = "exceptions:\n  - file: " + finding.file + "\n    rule: " + finding.rule + "\n    line: " + line + "\n    reason:";
-    card.appendChild(snippet);
+  add(body, "p", "File " + (finding.file || "not recorded") + " · Rule " + (finding.rule || "not recorded") + " · Line " + (finding.line || "not recorded"));
+  const link = document.createElement("a");
+  link.href = "threat-model.html#" + encodeURIComponent([finding.rule || "", finding.file || "", String(finding.line || "")].join("|"));
+  link.textContent = "Open this issue in the threat model";
+  const row = document.createElement("p");
+  row.appendChild(link);
+  body.appendChild(row);
+  add(body, "p", "For the exception record");
+  add(body, "p", "One issue in pathfinder-exceptions.yml. A reason needs at least 8 characters. A blank reason does not hide this finding.").className = "muted";
+  const line = finding.line === 0 || finding.line ? String(finding.line) : '""';
+  const snippet = document.createElement("pre");
+  snippet.className = "exception";
+  snippet.textContent = "exceptions:\n  - file: " + (finding.file || "") + "\n    rule: " + (finding.rule || "") + "\n    line: " + line + "\n    reason:";
+  body.appendChild(snippet);
+  if (finding.evidence) {
+    add(body, "p", "Or on the line above the evidence:").className = "muted";
+    const inline = document.createElement("pre");
+    inline.className = "exception";
+    inline.textContent = "# pathfinder: false-positive: \n" + String(finding.evidence).split("\n")[0];
+    body.appendChild(inline);
   }
+  title.addEventListener("click", () => { body.hidden = !body.hidden; });
+  card.appendChild(title);
+  card.appendChild(body);
   return card;
 }
 

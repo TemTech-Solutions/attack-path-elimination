@@ -30,7 +30,7 @@ jobs:
       - name: Checkout this repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Exception scan
+      - name: Validate findings and apply exceptions
         uses: TemTech-Solutions/attack-path-elimination@0c22700d74a47c1c1a6b9d8aa7508c63f4454fe4
         with:
           exception_scan: "true"

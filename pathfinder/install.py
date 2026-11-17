@@ -98,7 +98,7 @@ jobs:
       - name: Checkout this repository
         uses: actions/checkout@{CHECKOUT_REF} # v4.4.0
 
-      - name: Exception scan
+      - name: Validate findings and apply exceptions
         uses: {action}
         with:
           exception_scan: "true"
@@ -124,6 +124,7 @@ attack-paths:
     - python -m pip install --upgrade pip
     - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
     - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
+    - echo "Runtime scan validates confirmed findings and applies exception handling in the same run."
     - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --exception-scan
   artifacts:
     when: always
@@ -176,6 +177,7 @@ steps:
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
       PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
+      echo "Runtime scan validates confirmed findings and applies exception handling in the same run."
       PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan
     displayName: Analyze attack paths
 

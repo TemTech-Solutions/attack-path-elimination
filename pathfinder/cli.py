@@ -243,6 +243,9 @@ def _run_analyze(target: Path, out: Path, exception_scan_enabled: bool = False) 
         from pathfinder.exceptions import exception_scan
 
         exception_scan(result)
+        from pathfinder.threatmodel import attach_reviews
+
+        attach_reviews(result)
     paths = write_outputs(result, out)
     _print(pr_comment(result))
     for note in pipeline_annotations(result):

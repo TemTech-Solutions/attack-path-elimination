@@ -42,6 +42,16 @@ def build_graph(result: dict) -> dict:
                 "recommendation": item.get("recommendation") or "",
                 "file": item.get("file"),
                 "line": item.get("line"),
+                "access": item.get("access") or "",
+                "why": item.get("why") or "",
+                "effect": item.get("effect") or "",
+                "stride": list(item.get("stride") or []),
+                "pasta": item.get("pasta") or "",
+                "dread_text": item.get("dread_text") or "",
+                "walk": list(item.get("walk") or []),
+                "fingerprint": item.get("fingerprint") or "",
+                "band": item.get("band") or "",
+                "score": item.get("score") or 0,
             }
         )
     god = [

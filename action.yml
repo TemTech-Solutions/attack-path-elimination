@@ -15,7 +15,7 @@ inputs:
     required: false
     default: "true"
   exception_scan:
-    description: Run the deep scan again and drop recorded exceptions from the published findings
+    description: In the same CI run, keep only findings the checkout confirmed, then drop recorded exceptions from the published findings
     required: false
     default: "false"
   artifact:
@@ -53,7 +53,7 @@ runs:
       with:
         python-version: "3.12"
 
-    - name: Analyze this repository
+    - name: Validate findings and analyze this repository
       shell: bash
       env:
         EXCEPTION_SCAN: ${{ inputs.exception_scan }}

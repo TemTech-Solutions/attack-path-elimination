@@ -165,6 +165,9 @@ def test_html_and_comment_carry_the_chain(payment_repo: Path):
     assert "Risk score" in html
     assert "Findings on this path" in html
     assert "For the exception record" in html
+    assert "An attacker can use" in html
+    assert "Why this is first" in html
+    assert result["validation"]["kept"] >= 1
     assert "pathfinder-exceptions.yml" in html
     assert "exceptions:" in html
     assert "A blank reason does not hide this finding." in html
@@ -203,6 +206,7 @@ def test_html_and_comment_carry_the_chain(payment_repo: Path):
     criticals = [item for item in modeled["threats"] if item["band"] == "Critical"]
     assert criticals
     assert criticals[0]["why"]
+    assert criticals[0]["access"].startswith("An attacker can use")
     assert criticals[0]["effect"].startswith("Effect:")
     assert criticals[0]["recommendation"]
     assert criticals[0]["reachability"]
@@ -707,6 +711,30 @@ def test_unused_code_recommends_only_unreferenced_private_symbols(tmp_path: Path
     second = analyze(tmp_path)
     assert "_dead" not in {item["name"] for item in second["unused"]["removals"]}
     assert "abandoned" in {item["name"] for item in second["unused"]["removals"]}
+
+
+def test_runtime_validation_drops_unconfirmed_findings():
+    from pathfinder.exceptions import validate_published
+
+    result = {
+        "paths": [{"node_ids": ["live"], "hops": [{"node_id": "live", "file": "app.py", "rule": "APP05", "line": 2}], "findings": []}],
+        "findings": [
+            {"rule": "APP05", "file": "app.py", "line": 2, "evidence": "system(cmd)", "node_id": "live"},
+            {"rule": "APP05", "file": "", "line": 1, "evidence": "system(cmd)"},
+            {"rule": "APP10", "file": "names.py", "line": 4, "evidence": "Learned from this repository: helper", "learned": True, "node_id": "other"},
+            {"rule": "APP10", "file": "app.py", "line": 8, "evidence": "Learned from this repository: custodian_wrap", "learned": True, "node_id": "wrap"},
+        ],
+        "observations": [],
+        "scorecard": {},
+        "graph": {"nodes": []},
+    }
+    summary = validate_published(result)
+    names = {(item.get("file"), item.get("line")) for item in result["findings"]}
+    assert ("app.py", 2) in names
+    assert ("app.py", 8) in names
+    assert ("", 1) not in names
+    assert ("names.py", 4) not in names
+    assert summary["omitted"] == 2
 
 
 def test_score_bands():
