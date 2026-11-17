@@ -115,22 +115,24 @@ def _unused_lines(result: dict) -> list[str]:
     held = int(summary.get("held") or 0)
     lines = ["### Unused code", ""]
     lines.append(
-        f"Checked {summary.get('symbols', 0)} private, unexported, and public symbols "
-        f"across {summary.get('files', 0)} files. "
-        f"{len(removals)} can be removed. {held} public symbol(s) are defined once and were left in place."
+        f"Followed calls inside {summary.get('files', 0)} files "
+        f"({summary.get('symbols', 0)} symbols). "
+        f"{len(removals)} private item(s) are unreachable from any public function, import, decorator, or module-level call. "
+        f"{held} public symbol(s) are never called here and were left in place."
     )
     lines.append("")
     if not removals:
-        lines.append("No private or unexported symbol was defined once and never referenced. Nothing is recommended for removal.")
+        lines.append("No private symbol is unreachable from live code. Nothing is recommended for removal.")
         lines.append("")
         return lines
-    lines.append("Each item below is unused inside this repository. Deleting it does not change the code that still runs.")
+    lines.append("Each item below is unused inside this repository, including private helpers that only call each other. Deleting it does not change the code that still runs.")
     lines.append("")
     for item in removals[:12]:
         place = f"`{item.get('file')}:{item.get('line')}`"
         lines.append(f"- **{item.get('name')}** {place}")
         lines.append(f"  - What was found: {item.get('what')}")
         lines.append(f"  - How it affects the repo: {item.get('effect')}")
+        lines.append(f"  - How we know: {item.get('why')}")
         lines.append(f"  - Next step: {item.get('next')}")
     extra = len(removals) - 12
     if extra > 0:

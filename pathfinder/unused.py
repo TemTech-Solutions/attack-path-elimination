@@ -33,7 +33,6 @@ ENTRY = {
     "create_application", "handler", "lambda_handler", "cli", "configure",
     "ready", "setup", "teardown", "setupclass", "teardownclass",
 }
-WORD = re.compile(r"[A-Za-z_$][\w$]*")
 STRINGS = re.compile(r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|`(?:\\.|[^`\\\n])*`')
 JS_FUNC = re.compile(r"\b(?:async\s+)?function\*?\s+([A-Za-z_$][\w$]*)\s*\(")
 JS_CLASS = re.compile(r"\bclass\s+([A-Za-z_$][\w$]*)\b")
@@ -54,20 +53,19 @@ def find_unused(root: Path) -> dict:
     """Return removal recommendations and the symbols that were deliberately kept."""
     root = Path(root)
     files = _files(root)
-    counts: dict[str, int] = defaultdict(int)
+    texts = {rel: text for rel, text in files}
     symbols: list[dict] = []
     imports: list[dict] = []
+    module_calls: dict[str, set[str]] = {}
     unparsed = 0
     for rel, text in files:
-        for line in text.splitlines():
-            for word in WORD.findall(line):
-                counts[word] += 1
         suffix = Path(rel).suffix.lower()
         try:
             if suffix == ".py":
-                found, imported, failed = _python(rel, text)
+                found, imported, failed, called = _python(rel, text)
                 symbols.extend(found)
                 imports.extend(imported)
+                module_calls[rel] = called
                 unparsed += failed
             elif suffix in {".js", ".jsx", ".mjs", ".cjs"}:
                 symbols.extend(_script(rel, text, "JavaScript"))
@@ -83,7 +81,9 @@ def find_unused(root: Path) -> dict:
                 symbols.extend(_pattern(rel, text, "PHP", PHP_PRIVATE, "method", True))
         except Exception:
             unparsed += 1
-    removals, held, referenced, skipped = _classify(symbols, counts)
+    dead, held_symbols, referenced, skipped = _reach(symbols, texts, module_calls)
+    removals = [_removal(item) for item in dead]
+    held = [_held(item) for item in held_symbols]
     removals.extend(imports)
     removals.sort(key=lambda item: (item["file"], item["line"], item["name"]))
     held.sort(key=lambda item: (item["file"], item["line"], item["name"]))
@@ -97,31 +97,71 @@ def find_unused(root: Path) -> dict:
         "skipped": skipped,
         "unparsed": unparsed,
         "omitted": omitted,
+        "depth": "Calls are followed inside each file. Private code is removed only when no public function, import, decorator, or module-level call can reach it, including through other private helpers.",
     }
     return {"summary": summary, "removals": removals, "held": held[:40], "held_omitted": max(0, len(held) - 40)}
 
 
-def _classify(symbols: list[dict], counts: dict[str, int]) -> tuple[list[dict], list[dict], int, int]:
-    grouped: dict[str, list[dict]] = defaultdict(list)
+def _reach(symbols: list[dict], texts: dict[str, str], module_calls: dict[str, set[str]]):
+    """Follow calls inside each file. Private code is dead only when nothing live can reach it."""
+    by_file: dict[str, list[dict]] = defaultdict(list)
     for symbol in symbols:
-        grouped[symbol["name"]].append(symbol)
-    removals: list[dict] = []
+        by_file[symbol["file"]].append(symbol)
+    dead: list[dict] = []
     held: list[dict] = []
     referenced = 0
     skipped = 0
-    for name, group in grouped.items():
-        if _entry_name(name):
-            skipped += len(group)
-            continue
-        if len(group) != 1 or counts.get(name, 0) != 1:
-            referenced += len(group)
-            continue
-        symbol = group[0]
-        if symbol["private"]:
-            removals.append(_removal(symbol))
-        else:
-            held.append(_held(symbol))
-    return removals, held, referenced, skipped
+    for rel, group in by_file.items():
+        lines = texts.get(rel, "").splitlines()
+        skipped_here = [item for item in group if _entry_name(item["name"])]
+        skipped += len(skipped_here)
+        candidates = [item for item in group if item not in skipped_here]
+        names: dict[str, list[dict]] = defaultdict(list)
+        for item in candidates:
+            names[item["name"]].append(item)
+        ambiguous = {name for name, items in names.items() if len(items) > 1}
+        referenced += sum(len(names[name]) for name in ambiguous)
+        chosen = [item for item in candidates if item["name"] not in ambiguous]
+        spans = {item["name"]: _span(lines, item) for item in chosen}
+        calls = {item["name"]: _callees(item, chosen, lines, spans) for item in chosen}
+        roots = {item["name"] for item in chosen if _is_root(item, rel, lines, spans, texts, module_calls.get(rel, set()), chosen)}
+        live = set(roots)
+        pending = list(roots)
+        while pending:
+            name = pending.pop()
+            for callee in calls.get(name, ()):
+                if callee in calls and callee not in live:
+                    live.add(callee)
+                    pending.append(callee)
+        for item in chosen:
+            if item["name"] in live:
+                reached = (
+                    _called_from_elsewhere(item, lines, spans, calls)
+                    or item["name"] in module_calls.get(rel, set())
+                    or _other_files_mention(item["name"], rel, texts)
+                )
+                if not item["private"] and not reached:
+                    item["why"] = f"Nothing in this repository calls {item['name']}. It stays because it is public or exported and a caller outside this tree may use it."
+                    item["window"] = _window(lines, item["line"])
+                    held.append(item)
+                else:
+                    referenced += 1
+                continue
+            if not item["private"]:
+                referenced += 1
+                continue
+            callers = sorted(name for name, dests in calls.items() if item["name"] in dests)
+            if callers:
+                item["why"] = (
+                    f"No public function, import, decorator, or module-level call reaches {item['name']}. "
+                    f"The only callers are other unused private code: {', '.join(callers)}."
+                )
+            else:
+                item["why"] = f"No function, import, decorator, or module-level call in this repository reaches {item['name']}."
+            item["window"] = _window(lines, item["line"])
+            item["depth"] = "call graph"
+            dead.append(item)
+    return dead, held, referenced, skipped
 
 
 def _removal(symbol: dict) -> dict:
@@ -131,6 +171,7 @@ def _removal(symbol: dict) -> dict:
     file = symbol["file"]
     line = symbol["line"]
     evidence = symbol["evidence"]
+    why = symbol.get("why") or "The name is never reached from code that still runs."
     if kind == "import":
         what = f"{file} imports {name} and never uses that name."
         effect = f"The import does not change how {file} runs. The rest of the file never reads {name}."
@@ -145,8 +186,17 @@ def _removal(symbol: dict) -> dict:
         step = f"Delete the assignment to {name} at {file}:{line}."
     else:
         label = "method" if kind == "method" else "function"
-        what = f"Private {language} {label} {name} is defined at {file}:{line} and the name never appears again in this repository."
-        effect = f"Nothing in this repository calls {name}. It is not part of an attack path. Removing it deletes code that never runs."
+        clustered = "unused private code" in why
+        what = (
+            f"Private {language} {label} {name} at {file}:{line} is only reached from other unused private code."
+            if clustered
+            else f"Private {language} {label} {name} at {file}:{line} is not reached by any code that still runs."
+        )
+        effect = (
+            f"No live code calls {name}. Removing it with the unused private code that calls it deletes code that never runs."
+            if clustered
+            else f"Nothing that still runs calls {name}. It is not part of an attack path. Removing it deletes code that never runs."
+        )
         step = f"Delete {label} {name} at {file}:{line}."
     item = {
         "outcome": "remove",
@@ -161,6 +211,9 @@ def _removal(symbol: dict) -> dict:
         "what": what,
         "effect": effect,
         "next": step,
+        "why": why,
+        "window": symbol.get("window") or evidence,
+        "depth": symbol.get("depth") or "call graph",
         "confidence": "near 100%",
     }
     item["fingerprint"] = fingerprint("APP07", file, evidence)
@@ -199,24 +252,26 @@ def _suppress(root: Path, removals: list[dict]) -> int:
     return omitted
 
 
-def _python(rel: str, text: str) -> tuple[list[dict], list[dict], int]:
+def _python(rel: str, text: str) -> tuple[list[dict], list[dict], int, set[str]]:
     try:
         tree = ast.parse(text)
     except SyntaxError:
-        return [], [], 1
+        return [], [], 1, set()
     lines = text.splitlines()
     symbols: list[dict] = []
+    module_calls: set[str] = set()
 
     class Walker(ast.NodeVisitor):
         def __init__(self):
-            self.stack: list[str] = []
+            self.funcs = 0
+            self.classes = 0
 
         def visit_ClassDef(self, node: ast.ClassDef):
             if not node.decorator_list:
-                _record(symbols, rel, lines, node.name, node.lineno, "class", "Python", _private(node.name))
-            self.stack.append("class")
+                _record(symbols, rel, lines, node.name, node.lineno, "class", "Python", _private(node.name), _uses_in(node.body))
+            self.classes += 1
             self.generic_visit(node)
-            self.stack.pop()
+            self.classes -= 1
 
         def visit_FunctionDef(self, node: ast.FunctionDef):
             self._function(node)
@@ -225,22 +280,37 @@ def _python(rel: str, text: str) -> tuple[list[dict], list[dict], int]:
             self._function(node)
 
         def _function(self, node):
-            if not node.decorator_list and not _dunder(node.name):
-                kind = "method" if "class" in self.stack else "function"
-                _record(symbols, rel, lines, node.name, node.lineno, kind, "Python", _private(node.name))
-            self.stack.append("func")
+            if node.decorator_list:
+                module_calls.update(_uses_in(node.body))
+            elif not _dunder(node.name):
+                kind = "method" if self.classes else "function"
+                _record(symbols, rel, lines, node.name, node.lineno, kind, "Python", _private(node.name), _uses_in(node.body))
+            self.funcs += 1
+            for stmt in node.body:
+                self.visit(stmt)
+            self.funcs -= 1
+
+        def visit_Call(self, node: ast.Call):
             self.generic_visit(node)
-            self.stack.pop()
+
+        def visit_Name(self, node: ast.Name):
+            if self.funcs == 0 and isinstance(node.ctx, ast.Load):
+                module_calls.add(node.id)
+
+        def visit_Attribute(self, node: ast.Attribute):
+            if self.funcs == 0 and isinstance(node.ctx, ast.Load):
+                module_calls.add(node.attr)
+            self.generic_visit(node)
 
         def visit_Assign(self, node: ast.Assign):
-            if not self.stack or self.stack[-1] == "class":
+            if self.funcs == 0:
                 for target in node.targets:
                     if isinstance(target, ast.Name) and _private(target.id):
-                        _record(symbols, rel, lines, target.id, node.lineno, "constant", "Python", True)
+                        _record(symbols, rel, lines, target.id, node.lineno, "constant", "Python", True, [])
             self.generic_visit(node)
 
     Walker().visit(tree)
-    return symbols, _python_imports(rel, text, tree, lines), 0
+    return symbols, _python_imports(rel, text, tree, lines), 0, module_calls
 
 
 def _python_imports(rel: str, text: str, tree: ast.AST, lines: list[str]) -> list[dict]:
@@ -332,13 +402,13 @@ def _code_lines(text: str, comment: str):
         yield line_no, STRINGS.sub('""', line)
 
 
-def _record(found: list[dict], rel: str, lines: list[str], name: str, line: int, kind: str, language: str, private: bool) -> None:
+def _record(found: list[dict], rel: str, lines: list[str], name: str, line: int, kind: str, language: str, private: bool, calls: list[str] | None = None) -> None:
     if _dunder(name) or name == "_" or len(name) < 2:
         return
-    found.append(_symbol(rel, lines, name, line, kind, language, private))
+    found.append(_symbol(rel, lines, name, line, kind, language, private, calls or []))
 
 
-def _symbol(rel: str, lines: list[str], name: str, line: int, kind: str, language: str, private: bool) -> dict:
+def _symbol(rel: str, lines: list[str], name: str, line: int, kind: str, language: str, private: bool, calls: list[str] | None = None) -> dict:
     evidence = lines[line - 1].strip() if 0 < line <= len(lines) else name
     return {
         "name": name,
@@ -347,8 +417,116 @@ def _symbol(rel: str, lines: list[str], name: str, line: int, kind: str, languag
         "kind": kind,
         "language": language,
         "private": private,
+        "calls": list(calls or []),
         "evidence": " ".join(evidence.split())[:180],
     }
+
+
+def _uses_in(statements) -> list[str]:
+    found: list[str] = []
+
+    class Grab(ast.NodeVisitor):
+        def visit_FunctionDef(self, node: ast.FunctionDef):
+            return
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+            return
+
+        def visit_ClassDef(self, node: ast.ClassDef):
+            return
+
+        def visit_Name(self, node: ast.Name):
+            if isinstance(node.ctx, ast.Load):
+                found.append(node.id)
+
+        def visit_Attribute(self, node: ast.Attribute):
+            if isinstance(node.ctx, ast.Load):
+                found.append(node.attr)
+            self.generic_visit(node)
+
+    for statement in statements:
+        Grab().visit(statement)
+    return found
+
+
+def _span(lines: list[str], symbol: dict) -> tuple[int, int]:
+    if symbol["language"] == "Python":
+        return symbol["line"], symbol["line"]
+    start = symbol["line"]
+    depth = 0
+    seen = False
+    for index in range(start - 1, len(lines)):
+        line = STRINGS.sub('""', lines[index])
+        for char in line:
+            if char == "{":
+                depth += 1
+                seen = True
+            elif char == "}" and seen:
+                depth -= 1
+                if depth <= 0:
+                    return start, index + 1
+    return start, start if not seen else len(lines)
+
+
+def _callees(symbol: dict, group: list[dict], lines: list[str], spans: dict[str, tuple[int, int]]) -> set[str]:
+    if symbol["language"] == "Python":
+        return set(symbol.get("calls") or [])
+    start, end = spans[symbol["name"]]
+    body = "\n".join(lines[start - 1 : end])
+    return {
+        other["name"]
+        for other in group
+        if other["name"] != symbol["name"] and re.search(rf"\b{re.escape(other['name'])}\b", body)
+    }
+
+
+def _is_root(symbol: dict, rel: str, lines: list[str], spans: dict[str, tuple[int, int]], texts: dict[str, str], called_at_module: set[str], group: list[dict]) -> bool:
+    name = symbol["name"]
+    if not symbol["private"]:
+        return True
+    if name in called_at_module:
+        return True
+    if _other_files_mention(name, rel, texts):
+        return True
+    if symbol["language"] == "Python":
+        return False
+    start, end = spans[name]
+    private_spans = [spans[item["name"]] for item in group if item["private"] and item["name"] in spans]
+    for line_no, line in enumerate(lines, 1):
+        if start <= line_no <= end or not re.search(rf"\b{re.escape(name)}\b", line):
+            continue
+        if any(span_start <= line_no <= span_end for span_start, span_end in private_spans):
+            continue
+        return True
+    return False
+
+
+def _called_from_elsewhere(symbol: dict, lines: list[str], spans: dict[str, tuple[int, int]], calls: dict[str, set[str]]) -> bool:
+    name = symbol["name"]
+    if any(name in dests and caller != name for caller, dests in calls.items()):
+        return True
+    if symbol["language"] == "Python":
+        return False
+    start, end = spans.get(name, (symbol["line"], symbol["line"]))
+    for line_no, line in enumerate(lines, 1):
+        if start <= line_no <= end:
+            continue
+        if re.search(rf"\b{re.escape(name)}\b", line):
+            return True
+    return False
+
+
+def _other_files_mention(name: str, rel: str, texts: dict[str, str]) -> bool:
+    pattern = re.compile(rf"\b{re.escape(name)}\b")
+    return any(other != rel and pattern.search(text) for other, text in texts.items())
+
+
+def _window(lines: list[str], line: int, radius: int = 3) -> str:
+    if not lines:
+        return ""
+    start = max(1, line - radius)
+    end = min(len(lines), line + radius)
+    return "\n".join(f"{number}: {lines[number - 1]}" for number in range(start, end + 1))
 
 
 def _files(root: Path) -> list[tuple[str, str]]:

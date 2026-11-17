@@ -572,6 +572,12 @@ def test_unused_code_recommends_only_unreferenced_private_symbols(tmp_path: Path
         "def public_entry():\n"
         "    return used(_called())\n"
         "\n"
+        "def _island():\n"
+        "    return _island_helper()\n"
+        "\n"
+        "def _island_helper():\n"
+        "    return 4\n"
+        "\n"
         "@decorator\n"
         "def _registered():\n"
         "    return 3\n",
@@ -582,41 +588,57 @@ def test_unused_code_recommends_only_unreferenced_private_symbols(tmp_path: Path
         "  return 1;\n"
         "}\n"
         "function jsLiveHelper() {\n"
-        "  return jsLiveHelper();\n"
+        "  return 1;\n"
+        "}\n"
+        "function jsIsland() {\n"
+        "  return jsIslandHelper();\n"
+        "}\n"
+        "function jsIslandHelper() {\n"
+        "  return 1;\n"
         "}\n"
         "export function externalApi() {\n"
-        "  return 1;\n"
+        "  return jsLiveHelper();\n"
         "}\n",
         encoding="utf-8",
     )
     (tmp_path / "Box.java").write_text(
         "public class Box {\n"
+        "  public void open() { usedSecret(); }\n"
         "  private void unusedSecret() {}\n"
-        "  private void usedSecret() { usedSecret(); }\n"
-        "  private static final String NAME = \"label\";\n"
+        "  private void usedSecret() {}\n"
+        "  private void islandSecret() { islandHelper(); }\n"
+        "  private void islandHelper() {}\n"
         "}\n",
         encoding="utf-8",
     )
     (tmp_path / "Box.php").write_text(
         "<?php\n"
         "class Box {\n"
+        "  public function open() { return $this->phpLiveHelper(); }\n"
         "  private function phpDeadHelper() { return 1; }\n"
-        "  private function phpLiveHelper() { return $this->phpLiveHelper(); }\n"
+        "  private function phpLiveHelper() { return 1; }\n"
+        "  private function phpIsland() { return $this->phpIslandHelper(); }\n"
+        "  private function phpIslandHelper() { return 1; }\n"
         "}\n",
         encoding="utf-8",
     )
     (tmp_path / "Box.cs").write_text(
         "class Box {\n"
+        "  public void Open() { csLiveHelper(); }\n"
         "  private void csDeadHelper() {}\n"
-        "  private void csLiveHelper() { csLiveHelper(); }\n"
+        "  private void csLiveHelper() {}\n"
+        "  private void csIsland() { csIslandHelper(); }\n"
+        "  private void csIslandHelper() {}\n"
         "}\n",
         encoding="utf-8",
     )
     (tmp_path / "lib.go").write_text(
         "package lib\n"
         "func goDeadHelper() {}\n"
-        "func goLiveHelper() { goLiveHelper() }\n"
-        "func Exported() {}\n",
+        "func goLiveHelper() {}\n"
+        "func goIsland() { goIslandHelper() }\n"
+        "func goIslandHelper() {}\n"
+        "func Exported() { goLiveHelper() }\n",
         encoding="utf-8",
     )
     result = analyze(tmp_path)
@@ -624,6 +646,18 @@ def test_unused_code_recommends_only_unreferenced_private_symbols(tmp_path: Path
     held = {item["name"] for item in result["unused"]["held"]}
     assert "abandoned" in removals
     assert "_dead" in removals
+    assert "_island" in removals
+    assert "_island_helper" in removals
+    assert "jsIsland" in removals
+    assert "jsIslandHelper" in removals
+    assert "goIsland" in removals
+    assert "goIslandHelper" in removals
+    assert "islandSecret" in removals
+    assert "islandHelper" in removals
+    assert "phpIsland" in removals
+    assert "phpIslandHelper" in removals
+    assert "csIsland" in removals
+    assert "csIslandHelper" in removals
     assert "jsDeadHelper" in removals
     assert "goDeadHelper" in removals
     assert "phpDeadHelper" in removals
@@ -647,7 +681,11 @@ def test_unused_code_recommends_only_unreferenced_private_symbols(tmp_path: Path
     assert dead["effect"]
     assert dead["next"]
     assert dead["confidence"] == "near 100%"
+    island = next(item for item in result["unused"]["removals"] if item["name"] == "_island_helper")
+    assert "unused private code" in island["why"]
+    assert "_island" in island["why"]
     page = render_html(result)
+    assert "How we know" in page
     assert "Unused code in this repository" in page
     assert "What was found" in page
     assert "How it affects the repo" in page

@@ -26,6 +26,7 @@
     color: var(--text);
   }
   header, main { padding: 20px 24px; }
+  main { max-width: 1120px; margin: 0 auto; }
   header { border-bottom: 1px solid var(--line); }
   h1 { margin: 0 0 6px; font-size: 22px; }
   .muted { color: var(--muted); }
@@ -45,7 +46,7 @@
     background: #1a2744;
     border: 1px solid #34517a;
   }
-  .layout { display: grid; grid-template-columns: 280px 1fr 320px; gap: 16px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 280px) minmax(0, 1fr) minmax(0, 320px); gap: 16px; }
   @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
   .panel {
     background: var(--panel);
@@ -53,7 +54,24 @@
     border-radius: 12px;
     padding: 12px;
     min-height: 240px;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
+  .start { min-height: 0; margin-bottom: 16px; }
+  .action {
+    width: 100%;
+    text-align: left;
+    color: inherit;
+    background: #10192d;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-top: 8px;
+    cursor: pointer;
+    font: inherit;
+  }
+  .action:hover { border-color: var(--accent); }
+  .action-line { color: var(--accent); margin-top: 4px; }
   .path {
     width: 100%;
     text-align: left;
@@ -154,6 +172,9 @@
   .qa dt { color: var(--muted); margin-top: 8px; }
   .qa dd { margin: 0; }
   .unused-list { display: grid; gap: 10px; margin-top: 12px; }
+  .file-group { margin-top: 4px; }
+  .file-group h3 { margin: 8px 0 0; font-size: 14px; color: var(--accent); }
+  .window { margin: 8px 0 0; }
 </style>
 </head>
 <body>
@@ -166,6 +187,11 @@
   <div id="objectives"></div>
 </header>
 <main>
+  <section class="panel start" id="start">
+    <h2>Start here</h2>
+    <p class="muted" id="start-lead"></p>
+    <div id="start-list"></div>
+  </section>
   <div style="display:flex; gap:8px; margin-bottom:12px;">
     <button class="ghost" id="mode" type="button">Show every component on a path</button>
   </div>
@@ -263,6 +289,13 @@ function renderList() {
     const text = document.createElement("div");
     text.textContent = path.narrative;
     button.appendChild(text);
+    const action = (path.recommendations || [])[0];
+    if (action) {
+      const line = document.createElement("div");
+      line.className = "action-line";
+      line.textContent = "Action: " + action;
+      button.appendChild(line);
+    }
     button.addEventListener("click", () => { selected = index; openFinding = ""; render(); });
     pathList.appendChild(button);
   });
@@ -619,17 +652,72 @@ function outcomeCard(title, count, body) {
 function answerCard(item) {
   const card = document.createElement("article");
   card.className = "unused-card";
-  addText(card, "h3", "", (item.name || "Symbol") + " · " + (item.file || "") + ":" + (item.line || ""));
+  addText(card, "h3", "", (item.name || "Symbol") + " · line " + (item.line || ""));
   addText(card, "p", "muted", [item.language, item.kind, item.confidence].filter(Boolean).join(" · "));
   const list = document.createElement("dl");
   list.className = "qa";
-  [["What was found", item.what], ["How it affects the repo", item.effect], ["Next step", item.next]].forEach(([label, value]) => {
+  [
+    ["What was found", item.what],
+    ["How it affects the repo", item.effect],
+    ["How we know", item.why],
+    ["Next step", item.next]
+  ].forEach(([label, value]) => {
+    if (!value) return;
     addText(list, "dt", "", label);
-    addText(list, "dd", "", value || "");
+    addText(list, "dd", "", value);
   });
   card.appendChild(list);
-  if (item.evidence) addText(card, "pre", "exception", item.evidence);
+  if (item.window) addText(card, "pre", "exception window", item.window);
+  else if (item.evidence) addText(card, "pre", "exception", item.evidence);
   return card;
+}
+
+function actionRow(band, place, text, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "action";
+  const label = document.createElement("div");
+  label.className = "band " + (band === "Remove" ? "Low" : band);
+  label.textContent = band + " · " + place;
+  button.appendChild(label);
+  const body = document.createElement("div");
+  body.textContent = text;
+  button.appendChild(body);
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function renderStart() {
+  const root = document.getElementById("start-list");
+  const lead = document.getElementById("start-lead");
+  if (!root || !lead) return;
+  root.textContent = "";
+  const urgent = (data.paths || []).filter((path) => path.band === "Critical" || path.band === "High");
+  const removals = ((data.unused || {}).removals) || [];
+  const files = new Map();
+  removals.forEach((item) => files.set(item.file || "", (files.get(item.file || "") || 0) + 1));
+  lead.textContent = urgent.length || removals.length
+    ? "Do these first. Each row is one change: where it is, what to do, and a jump to the detail."
+    : "No critical or high path, and no unused code that met the removal bar.";
+  urgent.slice(0, 6).forEach((path) => {
+    const hop = (path.hops || []).find((item) => item.file) || {};
+    const place = hop.file ? hop.file + ":" + (hop.line || "") : "Attack path";
+    const text = (path.recommendations || [])[0] || path.narrative || "Review this path";
+    root.appendChild(actionRow(path.band, place, text, () => {
+      selected = data.paths.indexOf(path);
+      openFinding = "";
+      render();
+      document.getElementById("path-list").scrollIntoView({ behavior: "smooth", block: "start" });
+    }));
+  });
+  [...files.entries()].slice(0, 8).forEach(([file, count]) => {
+    root.appendChild(actionRow(
+      "Remove",
+      file || "Unused code",
+      "Delete " + count + " unused " + (count === 1 ? "symbol" : "symbols") + " that no live code can reach.",
+      () => document.getElementById("unused-code").scrollIntoView({ behavior: "smooth", block: "start" })
+    ));
+  });
 }
 
 function renderUnused() {
@@ -640,32 +728,45 @@ function renderUnused() {
   const lead = document.getElementById("unused-lead");
   lead.textContent = summary.error
     ? "The unused-code pass did not finish. " + summary.error
-    : "This pass reads the repository the action was pointed at. A symbol is recommended for removal only when it is private or unexported, it is defined once, and the name never appears again. Public symbols that are defined once stay in the repository, because a caller outside this tree may use them. Dependency folders are not part of this pass.";
+    : (summary.depth || "Calls are followed inside each file. Private code is removed only when no live code can reach it.")
+      + " Public and exported symbols stay, because a caller outside this tree may use them.";
   const outcomes = document.getElementById("unused-outcomes");
   outcomes.textContent = "";
   outcomes.appendChild(outcomeCard(
     "Remove",
     removals.length,
     removals.length
-      ? "Defined once. Nothing in this repository reads or calls the name. Deleting it does not change the code that still runs."
+      ? "No public function, import, decorator, or module-level call can reach these, even through other private helpers. Deleting them does not change the code that still runs."
       : "Nothing met the bar for removal."
   ));
   outcomes.appendChild(outcomeCard(
     "Leave in place",
     summary.held || 0,
-    "Defined once and never called here, but public or exported. This scan does not recommend deletion."
+    "Never called in this repository, but public or exported. This scan does not recommend deletion."
   ));
   const skipped = summary.skipped || 0;
   outcomes.appendChild(outcomeCard(
     "Already in use",
     summary.referenced || 0,
-    "The name appears again in this repository, or the same name is defined more than once."
+    "A live function, import, decorator, or module-level call reaches the name, or the same name is defined more than once."
       + (skipped ? " " + skipped + " test and entry-point symbols, such as main, are kept separately and are not part of this count." : "")
   ));
   const list = document.getElementById("unused-list");
   list.textContent = "";
   if (removals.length) addText(list, "h3", "", "Recommended removals");
-  removals.forEach((item) => list.appendChild(answerCard(item)));
+  const grouped = new Map();
+  removals.forEach((item) => {
+    const file = item.file || "(unknown file)";
+    if (!grouped.has(file)) grouped.set(file, []);
+    grouped.get(file).push(item);
+  });
+  grouped.forEach((items, file) => {
+    const group = document.createElement("section");
+    group.className = "file-group";
+    addText(group, "h3", "", file + " · " + items.length + (items.length === 1 ? " removal" : " removals"));
+    items.forEach((item) => group.appendChild(answerCard(item)));
+    list.appendChild(group);
+  });
   const shownHeld = held.slice(0, 12);
   if (shownHeld.length) addText(list, "h3", "", "Not recommended for removal");
   shownHeld.forEach((item) => list.appendChild(answerCard(item)));
@@ -675,6 +776,7 @@ function renderUnused() {
 }
 
 function render() {
+  renderStart();
   renderList();
   renderChain();
   renderUnused();
