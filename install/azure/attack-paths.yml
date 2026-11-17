@@ -37,8 +37,10 @@ steps:
       python -m pip install -r "$TOOL/requirements.txt"
       PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
       echo "Runtime scan validates confirmed findings and applies exception handling in the same run."
-      PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan
+      gate=0
+      PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan --max-critical 0 || gate=$?
       cat "$(Build.ArtifactStagingDirectory)/attack-paths-report/summary.md"
+      exit "$gate"
     displayName: Analyze attack paths
 
   - task: PublishPipelineArtifact@1

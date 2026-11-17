@@ -18,13 +18,14 @@ Every scan writes three HTML views of the same snapshot, plus the text a pipelin
 
 | File | The question it answers |
 | --- | --- |
-| `report.html` | Which chains rank first, and which edge do I remove? |
+| `summary.md` | What was found, in a few lines, and how many exceptions were skipped? |
+| `report.html` | Which chains rank first, which edge do I remove, and which private code is unused? |
 | `graph.html` | If I select this issue, what is the walk, the diagnosis, and the next change? |
 | `threat-model.html` | How does the same snapshot read by severity, reachability, exploitability, STRIDE, DREAD, or PASTA? |
 
-A GitHub Actions run publishes them as the `attack-path-report` artifact and writes the work queue into the job log and the job summary. On a pull request it updates one comment. A GitLab job publishes the same files as artifacts. An Azure DevOps pipeline publishes the same artifact and, on an Azure Repos pull request, updates one comment. A local run writes them under `--out`.
+A GitHub Actions run writes `summary.md` into the job log after the attack-path step and before checkout's post step. The same text is the job summary. On a pull request the action still updates one comment with the longer work queue. The `attack-path-report` artifact holds the HTML. A GitLab job and an Azure DevOps pipeline print that summary and publish the same files. A local run writes them under `--out`.
 
-The queue in the log is the work a remediation team can finish: every critical path, every high path, the medium walks that connect an entry to an asset, and the threat-model issues that are not already one of those hops. Each line has the file, the line, and what to remove. The HTML artifact keeps the full review, including the lower signals.
+Read the summary first. It counts critical, high, and medium paths, the findings that stayed, unused private symbols that can be removed, and the exceptions that were skipped. The HTML pages are where a finding opens into the file, the line, how an attacker can use it, and the exception record.
 
 ## How do I know a chain is worth a ticket?
 
@@ -94,6 +95,10 @@ Directories named `.git`, `node_modules`, `venv`, `.venv`, `__pycache__`, `dist`
 
 A hit requires structural evidence: a call, a string-built query, a credential literal, a missing control, or one of the smaller signals above. A bare word such as `system`, a placeholder value (`placeholder`, `changeme`, `example`, `dummy`), or a cache key is not a finding.
 
+The runtime scan then keeps a finding only when this checkout confirmed the file, the line, and the evidence. A learned name is published only when it sits on a walk, or in a file that already has a confirmed finding. That check runs in the same scan as exception handling.
+
+The same run follows calls inside each file and recommends removal of private or unexported code that no live code can reach, including a private helper whose only caller is other unused private code. Public and exported symbols stay, because a caller outside this tree may use them. A name mentioned from another file, a decorator, or a module-level call stays. The recommendation is near 100 percent confidence. Those items use rule APP07, so an exception can keep one of them. Dependency folders such as `vendor`, `third_party`, `site-packages`, `.next`, `coverage`, and `bower_components` are not part of this pass.
+
 ## How do I run it on GitHub?
 
 **Easy install and testing:** install the [TemTech Attack Path](https://github.com/apps/temtech-attack-path) GitHub App. Sign in as the account that owns the repositories, then choose **All repositories** or **Only select repositories**. That page is the short path for a trial. The private key stays with the app owner. The workflow below is what runs the scan on pull requests and on `main` or `master`.
@@ -120,7 +125,7 @@ git commit -m "Add attack path scan"
 git push
 ```
 
-The workflow runs on pull requests and on pushes to `main` or `master`. It has two jobs. `attack-paths` checks the application out and runs the deep scan. `exception-scan` runs that deep scan again and drops every recorded exception from the published findings. The pull-request comment and the `attack-path-report` artifact come from `exception-scan`. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
+The workflow runs on pull requests and on pushes to `main` or `master`. It has two jobs. `attack-paths` checks the application out and runs the deep scan. `exception-scan` runs that deep scan again, keeps only findings this checkout confirmed, and drops every recorded exception from the published findings. Each job ends with a **Scan summary** step. That step prints what was found and how many exceptions were skipped. It runs after the attack-path action and before checkout's post step. The pull-request comment and the `attack-path-report` artifact come from `exception-scan`. That job fails when any critical path remains after exceptions. Set `max_critical` higher, or add `max_high: "0"`, to change the limit. The deep-scan job reports and does not fail the workflow. In branch protection, require the **Attack paths** check so a pull request cannot merge while the gate is failed. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
 
 Before you add or update that line, open the [Marketplace listing](https://github.com/marketplace/actions/attack-path-elimination) and confirm the latest release shown there. Use that release. A tag or hash copied from an older page stays on the older release until you change the workflow.
 
@@ -137,12 +142,22 @@ The calling workflow needs `contents: read` and, if pull-request comments are le
 | `path` | `.` | Directory inside the checkout to analyze |
 | `out` | `attack-paths-report` | Where the HTML, JSON, and comment are written |
 | `comment` | `true` | Update the pull-request comment. Set `false` to keep the artifact only. The deep-scan job sets this to `false` |
-| `exception_scan` | `false` | Run the deep scan, then drop recorded exceptions from the published findings. The exception-scan job sets this to `true` |
+| `exception_scan` | `false` | Keep findings this checkout confirmed, then drop recorded exceptions from the published findings. The exception-scan job sets this to `true` |
 | `artifact` | `attack-path-report` | Artifact name. The deep scan uploads `attack-path-review`. The exception scan uploads `attack-path-report` |
+| `max_critical` | empty | Fail the job when critical paths exceed this count. The exception-scan job sets `0`. Empty reports only |
+| `max_high` | empty | Fail the job when high paths exceed this count. Empty reports only |
 
-Open **Actions**, then the **Attack paths** run. The log and the job summary are the work queue described above. Critical and high walks are also file annotations on that run.
+Open **Actions**, then the **Attack paths** run. Read the **Scan summary** step on the `exception-scan` job. It is the high-level result: path counts, findings kept, unused symbols, and exceptions skipped. The job summary panel shows the same text. Critical and high walks are also file annotations on that run. Download `attack-path-report` for the HTML.
 
-There is also a local installer: `python -m pathfinder install path\to\repository-to-scan` writes the same GitHub workflow. `--platform gitlab` writes the GitLab include. `--platform azure` writes the Azure DevOps pipeline.
+There is also a local installer: `python -m pathfinder install path\to\repository-to-scan` writes the same GitHub workflow. `--platform gitlab` writes the GitLab include. `--platform azure` writes the Azure DevOps pipeline. GitLab and Azure fail the job on the same rule: critical paths left after the exception scan.
+
+The same limit works on a developer machine, including a pre-push hook:
+
+```bash
+python -m pathfinder analyze . --exception-scan --max-critical 0
+```
+
+Add `--max-high 0` when high paths should fail the command too. Without either flag, the command writes the report and exits 0.
 
 ## How do I run it on GitLab?
 
@@ -160,7 +175,7 @@ include:
   - local: attack-paths.gitlab-ci.yml
 ```
 
-The job runs on merge requests and on the default branch. It fetches the full commit hash pinned in that file from `https://github.com/TemTech-Solutions/attack-path-elimination.git`, installs dependencies after upgrading pip, and analyzes the application checkout. GitLab and Azure hooks stay on that hash. The release-tag option above is for the GitHub Action `uses:` line. Artifacts are under `attack-paths-report/`: `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
+The job runs on merge requests and on the default branch. It fetches the full commit hash pinned in that file from `https://github.com/TemTech-Solutions/attack-path-elimination.git`, installs dependencies after upgrading pip, and analyzes the application checkout. The second analyze validates findings and applies exceptions, then the job prints `summary.md`. GitLab and Azure hooks stay on that hash. The release-tag option above is for the GitHub Action `uses:` line. Artifacts are under `attack-paths-report/`: `summary.md`, `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
 
 ## How do I run it on Azure DevOps?
 
@@ -184,7 +199,7 @@ Or `python -m pathfinder install path\to\repository-to-scan --platform azure`.
 
 In Azure DevOps, create a pipeline from that file: **Pipelines**, **New pipeline**, select the repository, then **Existing Azure Pipelines YAML file**, and choose `azure-pipelines/attack-paths.yml`. Commit and run it.
 
-The pipeline runs on pull requests and on pushes to `main` or `master`. It checks the application out, fetches the full commit hash pinned in that file, upgrades pip, and analyzes that checkout. The artifact is `attack-path-report`, and it contains `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
+The pipeline runs on pull requests and on pushes to `main` or `master`. It checks the application out, fetches the full commit hash pinned in that file, upgrades pip, and analyzes that checkout. The second analyze validates findings and applies exceptions, then the log prints `summary.md`. The artifact is `attack-path-report`, and it contains `summary.md`, `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
 
 On an Azure Repos pull request, the pipeline updates one comment marked `<!-- pathfinder-attack-paths -->`. That comment needs the build service identity to have permission to contribute to pull requests. If the permission is missing, the artifact is still published. A repository connected from GitHub or GitLab gets the artifact. The comment step runs for Azure Repos.
 
@@ -204,12 +219,13 @@ PowerShell uses the same commands with backslashes. Open `out/repository-to-scan
 
 | File | What it is |
 | --- | --- |
-| `report.html` | Ranked chains |
+| `summary.md` | What was found, and how many exceptions were skipped |
+| `report.html` | Ranked chains, finding records, and unused code |
 | `graph.html` | Diagnostic graph |
 | `threat-model.html` | Grouped threat model |
 | `graph-report.md` | God nodes, communities, and chains |
 | `graph.json` | The snapshot, including hypotheses, reviews, and frameworks |
-| `pr-comment.md` | The same work queue the pipeline prints |
+| `pr-comment.md` | The work queue a pull-request comment can carry |
 | `graph.cypher` | A Neo4j import, after you review it |
 | `history.json` | The earlier snapshot used to measure path erasure |
 
@@ -288,7 +304,9 @@ The same mark can sit in the source of the calling repository, on that line or o
 system(params[:cmd])
 ```
 
-The next run of that repository reads the committed file from the checkout. That case leaves the paths, the graph, and the severity, STRIDE, DREAD, and PASTA groups. The threat model lists it under **Exceptions**, with the reason and who marked it. An older `.pathfinder/exceptions.yml` in that same repository is still read.
+The next run of that repository reads the committed file from the checkout. That case leaves the paths, the graph, and the severity, STRIDE, DREAD, and PASTA groups. The threat model lists it under **Exceptions**, with the reason and who marked it. The scan summary counts it under **Exceptions skipped**. An older `.pathfinder/exceptions.yml` in that same repository is still read.
+
+Open any finding in `report.html`, `graph.html`, or `threat-model.html` and the record includes the exception snippet for that one issue: file, rule, line, and a blank reason. Copy it into `pathfinder-exceptions.yml`, or put `# pathfinder: false-positive:` on the line above the evidence. A blank reason does not hide the finding. Unused-code removals use rule APP07 and follow the same record.
 
 ## What if I want a service beside the pipeline?
 
@@ -322,7 +340,8 @@ Pull-request comments from the service are posted only when `PATHFINDER_POST_COM
 - `pathfinder/languages.py` and `pathfinder/platform.py` read languages and platforms that have a dedicated parser
 - `pathfinder/universal.py` reads every other program, then records smaller signals
 - `pathfinder/adapt.py` learns this repository's names locally and holds back likely false positives
-- `pathfinder/exceptions.py` applies remediation false positives to the attack paths and the threat model
+- `pathfinder/exceptions.py` applies remediation false positives and the runtime validation gate
+- `pathfinder/unused.py` recommends private code no live call can reach
 - `pathfinder/chains.py` composes stories
 - `pathfinder/query.py` answers a hypothesis
 - `pathfinder/rules/` holds the shipped objective templates

@@ -44,6 +44,7 @@ jobs:
         uses: TemTech-Solutions/attack-path-elimination@2f504e00285927caa3141e972f739082dc58b8af
         with:
           exception_scan: "true"
+          max_critical: "0"
           artifact: attack-path-report
 
       - name: Scan summary

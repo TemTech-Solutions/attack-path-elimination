@@ -297,6 +297,7 @@ def test_install_hook_writes_into_the_other_repo(tmp_path: Path):
     assert f"uses: TemTech-Solutions/attack-path-elimination@{PUBLIC_REF}" in text
     assert "exception-scan:" in text
     assert 'exception_scan: "true"' in text
+    assert 'max_critical: "0"' in text
     assert "Scan summary" in text
     assert "attack-paths-report/summary.md" in text
     assert "attack-path-review" in text
@@ -742,6 +743,18 @@ def test_runtime_validation_drops_unconfirmed_findings():
     assert ("", 1) not in names
     assert ("names.py", 4) not in names
     assert summary["omitted"] == 2
+
+
+def test_gate_fails_only_when_a_limit_is_set(payment_repo: Path, tmp_path: Path):
+    from pathfinder.cli import main
+
+    out = tmp_path / "gate"
+    reported = main(["analyze", str(payment_repo), "--out", str(out), "--exception-scan"])
+    assert reported == 0
+    blocked = main(["analyze", str(payment_repo), "--out", str(out), "--exception-scan", "--max-critical", "0"])
+    assert blocked == 1
+    allowed = main(["analyze", str(payment_repo), "--out", str(out), "--exception-scan", "--max-critical", "100", "--max-high", "100"])
+    assert allowed == 0
 
 
 def test_score_bands():

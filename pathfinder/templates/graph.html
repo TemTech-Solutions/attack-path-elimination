@@ -410,8 +410,7 @@ function showIssue(path) {
   layoutPath(path);
   const detail = document.getElementById("detail");
   detail.textContent = "";
-  add(detail, "h2", "Clear path");
-  detail.appendChild(pathCard(path, false));
+  detail.appendChild(pathCard(path, false, new Set()));
   drawIssues();
   draw();
 }
@@ -421,6 +420,7 @@ function select(node) {
   const outgoing = edges.filter((edge) => edge.source === node.id);
   const incoming = edges.filter((edge) => edge.target === node.id);
   const detail = document.getElementById("detail");
+  const seen = new Set();
   detail.textContent = "";
   add(detail, "h2", node.name);
   const meta = [
@@ -434,18 +434,23 @@ function select(node) {
   const related = data.paths.filter((path) => (path.node_ids || []).includes(node.id) || (path.hops || []).some((hop) => hop.node_id === node.id));
   add(detail, "h3", "Paths to eliminate (" + related.length + ")");
   if (!related.length) add(detail, "p", "This component is not on an elimination path in this snapshot.").className = "muted";
-  related.forEach((path) => detail.appendChild(pathCard(path, true)));
+  related.forEach((path) => detail.appendChild(pathCard(path, true, seen)));
   if ((node.findings || []).length) {
     add(detail, "h3", "On this component");
-    node.findings.forEach((finding) => detail.appendChild(findingBlock(finding)));
+    node.findings.forEach((finding) => detail.appendChild(findingBlock(finding, seen)));
   }
-  add(detail, "h3", "Connections (" + (outgoing.length + incoming.length) + ")");
-  outgoing.forEach((edge) => add(detail, "p", "→ " + nameOf(edge.target) + " [" + edge.relation + "] [" + edge.confidence + "]" + evidenceSuffix(edge)));
-  incoming.forEach((edge) => add(detail, "p", "← " + nameOf(edge.source) + " [" + edge.relation + "] [" + edge.confidence + "]" + evidenceSuffix(edge)));
+  const links = outgoing.concat(incoming).filter((edge) => !seen.has(edgeKey(edge)));
+  if (links.length) {
+    add(detail, "h3", "Connections (" + links.length + ")");
+    links.forEach((edge) => {
+      const arrow = edge.source === node.id ? "→ " + nameOf(edge.target) : "← " + nameOf(edge.source);
+      add(detail, "p", arrow + " [" + edge.relation + "] [" + edge.confidence + "]" + evidenceSuffix(edge, seen));
+    });
+  }
   draw();
 }
 
-function pathCard(path, highlight) {
+function pathCard(path, highlight, seen) {
   const card = document.createElement("article");
   card.className = "card";
   const title = document.createElement("h3");
@@ -455,37 +460,65 @@ function pathCard(path, highlight) {
   title.appendChild(band);
   title.appendChild(document.createTextNode(" · " + String(path.category || "").replace(/_/g, " ")));
   card.appendChild(title);
-  add(card, "h3", "Diagnosis");
-  add(card, "p", path.diagnosis || path.narrative);
-  add(card, "h3", "Clear path");
-  (path.hops || []).forEach((hop, index) => {
-    const place = hop.file ? hop.file + (hop.line ? ":" + hop.line : "") : "";
-    const row = document.createElement("p");
-    row.className = "step";
-    row.textContent = (index + 1) + ". " + [hop.label, hop.rule, place, hop.evidence].filter(Boolean).join(" · ");
-    if (hop.node_id && byId[hop.node_id]) {
-      row.style.cursor = "pointer";
-      row.addEventListener("click", () => select(byId[hop.node_id]));
-    }
-    card.appendChild(row);
-  });
-  if ((path.edges || []).length) {
-    add(card, "p", "How the walk is reachable");
-    path.edges.forEach((edge) => add(card, "p", nameOf(edge.source) + " --" + edge.kind + "--> " + nameOf(edge.target) + " [" + edge.confidence + "]" + evidenceSuffix(edge)));
+  const diagnosis = diagnosisText(path);
+  if (!already(seen, diagnosis)) {
+    add(card, "h3", "Diagnosis");
+    add(card, "p", diagnosis);
   }
-  if ((path.next_steps || []).length) {
-    add(card, "h3", "Next step");
-    path.next_steps.forEach((step) => {
-      const place = step.file ? " · " + step.file + (step.line ? ":" + step.line : "") : "";
-      const row = document.createElement("p");
-      row.className = "step";
-      row.textContent = step.order + ". " + step.action + place;
-      card.appendChild(row);
+  remember(seen, diagnosis);
+  const places = new Set();
+  const hopRows = [];
+  (path.hops || []).forEach((hop) => {
+    const place = hop.file ? hop.file + (hop.line ? ":" + hop.line : "") : "";
+    if (place) places.add(place);
+    const evidence = hop.evidence && !containsText(diagnosis, hop.evidence) ? hop.evidence : "";
+    const parts = [hop.label, hop.rule, place, evidence].filter((part) => part && !containsText(diagnosis, part)).join(" · ");
+    if (parts && !already(seen, parts) && !hopRows.some((row) => row.parts === parts)) hopRows.push({ hop, parts });
+    remember(seen, parts);
+    remember(seen, hop.evidence);
+  });
+  if (hopRows.length) add(card, "h3", "Clear path");
+  hopRows.forEach((row, index) => {
+    const line = document.createElement("p");
+    line.className = "step";
+    line.textContent = (index + 1) + ". " + row.parts;
+    if (row.hop.node_id && byId[row.hop.node_id]) {
+      line.style.cursor = "pointer";
+      line.addEventListener("click", () => select(byId[row.hop.node_id]));
+    }
+    card.appendChild(line);
+  });
+  const freshEdges = (path.edges || []).filter((edge) => !seen.has(edgeKey(edge)));
+  if (freshEdges.length) {
+    add(card, "p", "How the walk is reachable");
+    freshEdges.forEach((edge) => {
+      const suffix = evidenceSuffix(edge, seen);
+      remember(seen, edgeKey(edge));
+      remember(seen, edge.evidence);
+      add(card, "p", nameOf(edge.source) + " --" + edge.kind + "--> " + nameOf(edge.target) + " [" + edge.confidence + "]" + suffix);
     });
   }
-  if ((path.remove || []).length) {
+  (path.edges || []).forEach((edge) => remember(seen, edgeKey(edge)));
+  const actions = uniqueActions(path.next_steps || []).filter((step) => !alreadyAction(seen, step.action));
+  if (actions.length) {
+    add(card, "h3", "Next step");
+    actions.forEach((step) => {
+      const place = step.file ? step.file + (step.line ? ":" + step.line : "") : "";
+      const suffix = place && !places.has(place) ? " · " + place : "";
+      const row = document.createElement("p");
+      row.className = "step";
+      row.textContent = step.order + ". " + step.action + suffix;
+      card.appendChild(row);
+      remember(seen, step.action);
+    });
+  }
+  const extraRemove = (path.remove || []).filter((text) => !alreadyAction(seen, text) && !actions.some((step) => sameAction(step.action, text)));
+  if (extraRemove.length) {
     add(card, "h3", "What to remove");
-    path.remove.forEach((text) => add(card, "p", text));
+    extraRemove.forEach((text) => {
+      add(card, "p", text);
+      remember(seen, text);
+    });
   }
   if (highlight) {
     const button = document.createElement("button");
@@ -498,30 +531,31 @@ function pathCard(path, highlight) {
   return card;
 }
 
-function findingBlock(finding) {
+function findingBlock(finding, seen) {
   const card = document.createElement("article");
   card.className = "card";
   const title = document.createElement("h3");
-  const band = finding.band ? finding.band + " " + (finding.score ?? "") + " · " : "";
-  title.textContent = band + (finding.title || finding.rule || "Finding");
+  const scoreLead = (finding.band ? finding.band + " " + (finding.score ?? "") : "").trim();
+  title.textContent = (scoreLead ? scoreLead + " · " : "") + (finding.title || finding.rule || "Finding");
   title.style.cursor = "pointer";
   const body = document.createElement("div");
   body.hidden = true;
-  add(body, "p", finding.access || "An attacker can use this finding on its own. Access stays on this component and does not depend on another file.");
-  add(body, "p", "Why this is first: " + (finding.why || "This scan confirmed the file and line."));
-  if (finding.effect) add(body, "p", finding.effect);
-  if (finding.recommendation) add(body, "p", "Next step: " + finding.recommendation);
-  if (finding.evidence) add(body, "p", finding.evidence);
+  const access = finding.access || "An attacker can use this finding on its own. Access stays on this component and does not depend on another file.";
+  if (!already(seen, access)) add(body, "p", access);
+  let why = finding.why || "This scan confirmed the file and line.";
+  if (scoreLead && why.startsWith(scoreLead)) why = why.slice(scoreLead.length).replace(/^[.\s]+/, "");
+  if (why && !already(seen, why)) add(body, "p", "Why this is first: " + why);
+  if (finding.effect && !already(seen, finding.effect)) add(body, "p", finding.effect);
+  if (finding.recommendation && !already(seen, finding.recommendation)) add(body, "p", "Next step: " + finding.recommendation);
   if (finding.dread_text) add(body, "p", finding.dread_text);
   if ((finding.stride || []).length) add(body, "p", "STRIDE · " + finding.stride.join(", "));
   if (finding.pasta) add(body, "p", "PASTA · " + finding.pasta);
   if (finding.fingerprint) add(body, "p", "Exception id: " + finding.fingerprint);
-  const walk = finding.walk || [];
+  const walk = (finding.walk || []).filter((step) => !already(seen, step) && !sameFinding(step, finding) && !repeatsHop(seen, step));
   if (walk.length) {
     add(body, "p", "Walk");
     walk.forEach((step) => add(body, "p", step));
   }
-  add(body, "p", "File " + (finding.file || "not recorded") + " · Rule " + (finding.rule || "not recorded") + " · Line " + (finding.line || "not recorded"));
   const link = document.createElement("a");
   link.href = "threat-model.html#" + encodeURIComponent([finding.rule || "", finding.file || "", String(finding.line || "")].join("|"));
   link.textContent = "Open this issue in the threat model";
@@ -548,9 +582,93 @@ function findingBlock(finding) {
   return card;
 }
 
-function evidenceSuffix(edge) {
-  const place = edge.file ? " " + edge.file + (edge.line ? ":" + edge.line : "") : "";
-  return (edge.evidence ? " " + edge.evidence : "") + place;
+function diagnosisText(path) {
+  let text = String(path.diagnosis || path.narrative || "");
+  const start = text.indexOf(" The clear path starts at ");
+  if (start > 0) text = text.slice(0, start);
+  const recorded = text.indexOf(" Recorded at ");
+  if (recorded > 0) text = text.slice(0, recorded);
+  return text.trim();
+}
+function edgeKey(edge) {
+  return nameOf(edge.source) + "|" + (edge.relation || edge.kind || "") + "|" + nameOf(edge.target);
+}
+function remember(seen, text) {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  if (value) seen.add(value);
+}
+function containsText(haystack, needle) {
+  const value = String(needle || "").replace(/\s+/g, " ").trim();
+  return value.length >= 12 && String(haystack || "").includes(value);
+}
+function already(seen, text) {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  if (!value || !seen) return false;
+  if (seen.has(value)) return true;
+  for (const item of seen) {
+    if (item.length < 24 || value.length < 24) continue;
+    const shorter = Math.min(item.length, value.length);
+    const longer = Math.max(item.length, value.length);
+    if (shorter / longer < 0.72) continue;
+    if (item.includes(value) || value.includes(item)) return true;
+  }
+  return false;
+}
+function alreadyAction(seen, text) {
+  if (!seen) return false;
+  for (const item of seen) {
+    if (sameAction(item, text)) return true;
+  }
+  return false;
+}
+function uniqueActions(steps) {
+  const kept = [];
+  steps.forEach((step) => {
+    const match = kept.find((other) => sameAction(step.action, other.action));
+    if (!match) kept.push(step);
+    else if (actionKey(step.action).length > actionKey(match.action).length) kept[kept.indexOf(match)] = step;
+  });
+  return kept.map((step, index) => Object.assign({}, step, { order: index + 1 }));
+}
+function sameAction(left, right) {
+  const a = actionKey(left);
+  const b = actionKey(right);
+  if (!a || !b) return false;
+  return a === b || a.includes(b) || b.includes(a);
+}
+function actionKey(text) {
+  return String(text || "").toLowerCase().replace(/^deletion:\s*/, "").replace(/\b(delete|remove)\b/g, "remove").replace(/[.]/g, "").replace(/\s+/g, " ").trim();
+}
+function repeatsHop(seen, step) {
+  const text = String(step || "");
+  if (!seen) return false;
+  for (const item of seen) {
+    if (item.length >= 16 && text.includes(item)) return true;
+  }
+  return false;
+}
+function sameFinding(step, finding) {
+  const text = String(step || "");
+  const file = finding.file || "";
+  const rule = finding.rule || "";
+  const evidence = String(finding.evidence || "").split("\n")[0];
+  return (!file || text.includes(file)) && (!rule || text.includes(rule)) && (!evidence || text.includes(evidence));
+}
+
+function evidenceSuffix(edge, seen) {
+  const evidence = edge.evidence && !mentioned(seen, edge.evidence) ? " " + edge.evidence : "";
+  const place = edge.file ? edge.file + (edge.line ? ":" + edge.line : "") : "";
+  const located = place && !mentioned(seen, place) ? " " + place : "";
+  return evidence + located;
+}
+function mentioned(seen, text) {
+  const value = String(text || "").trim();
+  if (!value || value.length < 8 || !seen) return false;
+  if (seen.has(value)) return true;
+  for (const item of seen) {
+    if (item.includes(value)) return true;
+  }
+  return false;
 }
 function nameOf(id) { return byId[id] ? byId[id].name : id; }
 function add(parent, tag, text) {

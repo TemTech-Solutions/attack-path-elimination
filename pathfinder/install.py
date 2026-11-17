@@ -112,6 +112,7 @@ jobs:
         uses: {action}
         with:
           exception_scan: "true"
+          max_critical: "0"
           artifact: attack-path-report
 
       - name: Scan summary
@@ -145,8 +146,11 @@ attack-paths:
     - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
     - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
     - echo "Runtime scan validates confirmed findings and applies exception handling in the same run."
-    - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --exception-scan
-    - cat attack-paths-report/summary.md
+    - |
+      gate=0
+      PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --exception-scan --max-critical 0 || gate=$?
+      cat attack-paths-report/summary.md
+      exit "$gate"
   artifacts:
     when: always
     paths:
@@ -200,8 +204,10 @@ steps:
       python -m pip install -r "$TOOL/requirements.txt"
       PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
       echo "Runtime scan validates confirmed findings and applies exception handling in the same run."
-      PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan
+      gate=0
+      PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan --max-critical 0 || gate=$?
       cat "$(Build.ArtifactStagingDirectory)/attack-paths-report/summary.md"
+      exit "$gate"
     displayName: Analyze attack paths
 
   - task: PublishPipelineArtifact@1

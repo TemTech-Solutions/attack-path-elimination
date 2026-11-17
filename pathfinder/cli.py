@@ -38,6 +38,18 @@ def main(argv: list[str] | None = None) -> int:
             action="store_true",
             help="Run the deep scan, then drop recorded exceptions from the published findings",
         )
+        scan_parser.add_argument(
+            "--max-critical",
+            type=int,
+            default=None,
+            help="Fail when critical paths exceed this count. Omit it to report without failing",
+        )
+        scan_parser.add_argument(
+            "--max-high",
+            type=int,
+            default=None,
+            help="Fail when high paths exceed this count. Omit it to report without failing",
+        )
 
     comment_parser = sub.add_parser("comment", help="Print a pull-request comment for a repository")
     comment_parser.add_argument("target", type=Path)
@@ -123,7 +135,13 @@ def main(argv: list[str] | None = None) -> int:
 
 def _dispatch(args) -> int:
     if args.command in {"analyze", "scan"}:
-        return _run_analyze(args.target, args.out, exception_scan_enabled=args.exception_scan)
+        return _run_analyze(
+            args.target,
+            args.out,
+            exception_scan_enabled=args.exception_scan,
+            max_critical=args.max_critical,
+            max_high=args.max_high,
+        )
     if args.command == "comment":
         _print(pr_comment(analyze(args.target)))
         return 0
@@ -237,7 +255,13 @@ def _dispatch(args) -> int:
     return 1
 
 
-def _run_analyze(target: Path, out: Path, exception_scan_enabled: bool = False) -> int:
+def _run_analyze(
+    target: Path,
+    out: Path,
+    exception_scan_enabled: bool = False,
+    max_critical: int | None = None,
+    max_high: int | None = None,
+) -> int:
     result = apply_history(analyze(target), out / "history.json")
     if exception_scan_enabled:
         from pathfinder.exceptions import exception_scan
@@ -253,6 +277,25 @@ def _run_analyze(target: Path, out: Path, exception_scan_enabled: bool = False) 
     _print(f"HTML report: {paths['html']}")
     _print(f"Graph: {paths['graph']}")
     _print(f"Threat model: {paths['threat']}")
+    return _gate(result, max_critical, max_high)
+
+
+def _gate(result: dict, max_critical: int | None, max_high: int | None) -> int:
+    """Fail after the report is written, using the counts left by exception handling."""
+    if max_critical is None and max_high is None:
+        return 0
+    card = result.get("scorecard") or {}
+    critical = int(card.get("critical_paths") or 0)
+    high = int(card.get("high_paths") or 0)
+    failures = []
+    if max_critical is not None and critical > max_critical:
+        failures.append(f"{critical} critical path(s) remain, above the limit of {max_critical}")
+    if max_high is not None and high > max_high:
+        failures.append(f"{high} high path(s) remain, above the limit of {max_high}")
+    if failures:
+        _print("Gate failed. " + " ".join(failures) + ".")
+        return 1
+    _print(f"Gate passed. {critical} critical path(s) and {high} high path(s).")
     return 0
 
 

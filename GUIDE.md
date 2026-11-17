@@ -42,7 +42,7 @@ python -m pathfinder install path/to/repository-to-scan
 
 Push the workflow to `main` or `master`. It also runs when a pull request is opened.
 
-The installed workflow has two jobs. `attack-paths` checks out the application repository with `actions/checkout` pinned to a full commit SHA, then runs the deep scan. `exception-scan` runs that deep scan again and drops every recorded exception from the published findings. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
+The installed workflow has two jobs. `attack-paths` checks out the application repository with `actions/checkout` pinned to a full commit SHA, then runs the deep scan. `exception-scan` runs that deep scan again, keeps only findings this checkout confirmed, and drops every recorded exception from the published findings. Each job then runs **Scan summary**, which prints the high-level result before checkout's post step. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
 
 Before you add or update that line, open the [Marketplace listing](https://github.com/marketplace/actions/attack-path-elimination) and confirm the latest release shown there. Use that release. A tag or hash copied from an older page stays on the older release until you change the workflow.
 
@@ -50,18 +50,19 @@ Before you add or update that line, open the [Marketplace listing](https://githu
 
 **Pinned SHA.** You can pin the same line to the full 40-character commit hash of the release you just verified. A short hash does not run. Copy the hash from that Marketplace release. A later commit on `main` leaves a pinned line on the same hash until you replace it. The workflow file from this repository is pinned to a full commit hash. Confirm on Marketplace that it still matches the latest release before you rely on it.
 
-The jobs need `contents: read`. Pull-request comments also need `pull-requests: write`. The Action upgrades pip, installs its own requirements, and analyzes `.`. The deep scan uploads `attack-path-review` and does not comment. The exception scan uploads `attack-path-report`, writes the chains into the job summary, and on a pull request updates one comment.
+The jobs need `contents: read`. Pull-request comments also need `pull-requests: write`. The Action upgrades pip, installs its own requirements, and analyzes `.`. The deep scan uploads `attack-path-review` and does not comment. The exception scan uploads `attack-path-report`, writes the high-level summary into the job summary, and on a pull request updates one comment with the longer work queue. It then fails the job when critical paths remain. Recorded exceptions are applied first, so an accepted exception can let the job pass. Require the **Attack paths** workflow in branch protection to block the merge. To also fail on high paths, set `max_high: "0"` on that job. A local run uses the same rule: `python -m pathfinder analyze . --exception-scan --max-critical 0`.
 
 To keep the artifact and skip the comment, call the action with `comment: "false"`.
 
 ## 2. What do I read in the pipeline?
 
-The log is the work queue. The HTML artifact is the full review. Open the repository on GitHub and go to **Actions**. Open the **Attack paths** run.
+Read the summary before the HTML. Open the repository on GitHub and go to **Actions**. Open the **Attack paths** run, then the `exception-scan` job.
 
-- The log and the run summary list the work queue: critical paths, high paths, the medium walks that connect an entry to an asset, and the threat-model issues that are not already one of those hops. Each one shows the file, the line, and what to remove. Critical and high walks are file annotations on the run. A recorded exception removes that one issue from the attack paths and from the threat model. The local learner holds back a learned name when it matches false positives this repository already accepted.
-- Read the `exception-scan` job for the queue after recorded exceptions are removed. Download the `attack-path-report` artifact from that job.
-- Open `report.html` for the ranked chains, `graph.html` for the graph, and `threat-model.html` for the grouped threat model. Those pages keep the full review, including signals below the work queue.
-- If the run came from a pull request, the same short summary is posted as one comment. Later runs update that comment. The comment is marked `<!-- pathfinder-attack-paths -->`.
+- **Scan summary** is the step after the attack-path action and before **Post Checkout this repository**. It says what was found: critical, high, and medium path counts, findings that stayed, unused private symbols that can be removed, and the first path in one sentence. **Exceptions skipped** is the number of findings left out because a recorded exception matched them. The job summary panel shows the same text. `summary.md` in the artifact is that text.
+- Download the `attack-path-report` artifact from `exception-scan` for the detail. `attack-paths` uploads `attack-path-review` from the scan before exceptions are applied.
+- Open `report.html` for the ranked chains and unused code, `graph.html` for the graph, and `threat-model.html` for the grouped threat model. Open a finding for the file, the line, how an attacker can use it, and the exception record.
+- Critical and high walks are also file annotations on the run. A recorded exception removes that one issue from the attack paths and from the threat model. The local learner holds back a learned name when it matches false positives this repository already accepted. A finding without a confirmed file, line, and evidence is not published.
+- If the run came from a pull request, the work queue is posted as one comment. Later runs update that comment. The comment is marked `<!-- pathfinder-attack-paths -->`. The comment is the queue. The scan summary is the count.
 
 The HTML files open in a browser. They do not need the Python process to stay running.
 
@@ -83,13 +84,14 @@ include:
   - local: attack-paths.gitlab-ci.yml
 ```
 
-The job runs on merge requests and on the default branch, in a `python:3.12` image. It fetches the full commit hash pinned in that file from GitHub, upgrades pip, installs requirements, and analyzes the project directory. GitLab and Azure hooks stay on that hash. The release-tag option in section 1 is for the GitHub Action `uses:` line. Artifacts, kept even when the job fails, are:
+The job runs on merge requests and on the default branch, in a `python:3.12` image. It fetches the full commit hash pinned in that file from GitHub, upgrades pip, installs requirements, and analyzes the project directory. A second analyze validates findings and applies exceptions, then the log prints `summary.md`. GitLab and Azure hooks stay on that hash. The release-tag option in section 1 is for the GitHub Action `uses:` line. Artifacts, kept even when the job fails, are:
 
 - `attack-paths-report/report.html`
 - `attack-paths-report/graph.html`
 - `attack-paths-report/threat-model.html`
 - `attack-paths-report/graph-report.md`
 - `attack-paths-report/pr-comment.md`
+- `attack-paths-report/summary.md`
 - `attack-paths-report/graph.json`
 
 GitLab CI, GitHub Actions, and Azure Pipelines are also files the analyzer reads when they are in the repository being scanned. The hook above is how GitLab runs the analyzer.
@@ -108,8 +110,9 @@ Or `python -m pathfinder install path/to/repository-to-scan --platform azure`.
 
 In Azure DevOps, open **Pipelines**, **New pipeline**, select the repository, choose **Existing Azure Pipelines YAML file**, and set the path to `azure-pipelines/attack-paths.yml`.
 
-The pipeline runs on pull requests and on `main` or `master`, on `ubuntu-latest`, with Python 3.12. It fetches the full commit hash pinned in that file from GitHub, upgrades pip, installs requirements, and analyzes the project directory. The artifact `attack-path-report` is published even when a later step fails, and it contains:
+The pipeline runs on pull requests and on `main` or `master`, on `ubuntu-latest`, with Python 3.12. It fetches the full commit hash pinned in that file from GitHub, upgrades pip, installs requirements, and analyzes the project directory. A second analyze validates findings and applies exceptions, then the log prints `summary.md`. The artifact `attack-path-report` is published even when a later step fails, and it contains:
 
+- `summary.md`
 - `report.html`
 - `graph.html`
 - `threat-model.html`
@@ -151,6 +154,7 @@ The command writes:
 | `threat-model.html` | Findings grouped by severity and by review framework |
 | `graph.json` | Components, edges, paths, hypotheses, reviews, frameworks, and the scorecard |
 | `graph-report.md` | God nodes, communities, and chains |
+| `summary.md` | What was found, and how many exceptions were skipped |
 | `pr-comment.md` | Text you can paste onto a pull request |
 | `graph.cypher` | A Neo4j import of the graph |
 | `history.json` | The earlier snapshot used to measure whether chains disappeared |
@@ -210,7 +214,18 @@ Select a hop to see the risk score of the highest chain that touches that compon
 
 Rule ids are the control IDs from the [OWASP Subtractive Hardening Top 10](https://github.com/OWASP/OWASP-Subtractive-Hardening-Top-10) baseline. APP rules are the Application Hardening Top 10. C rules are the CI/CD Pipeline Subtractive Hardening Top 10. S rules are the AWS Subtractive Hardening Top 10. D rules are the Datastore Subtractive Hardening Top 10. A rules are the AI Subtractive Hardening Top 10. U rules are the Universal Subtractive Security Laws, such as a wildcard IAM policy. The wording in the report is a short recommendation for that control ID. The upstream document is the standard.
 
-The header links to `graph.html` and `threat-model.html`.
+The header links to `graph.html`, `threat-model.html`, and the unused-code section.
+
+**Start here** is the action list. Each row is one change: a critical or high path, or a file that has unused symbols. Select a row to jump to that path or to the unused-code section. The path list leads with **Action** and the first recommendation.
+
+**Findings on this path** is one card per detection. File, rule, and line stay visible. Open a card for the record:
+
+- How an attacker can use this finding, on this component or by moving into another component in the repository or on the infrastructure the walk reaches
+- **Why this is first**, the **effect**, and the **next step**
+- DREAD, STRIDE, PASTA, the exception id, and the walk
+- **For the exception record**, the `pathfinder-exceptions.yml` snippet, Copy, and the inline `# pathfinder: false-positive:` mark
+
+**Unused code in this repository** groups removals by file. A private symbol is listed when no public function, import, decorator, or module-level call can reach it, including through other private helpers. Each card says what was found, how it affects the repository, how the scan knows, and the next step, with a few numbered source lines. Public symbols that nothing here calls are listed under **Leave in place** and are not recommended for deletion.
 
 **Show every component on a path** lists every component that sits on any chain. Select it again to return to the selected chain.
 
@@ -224,7 +239,7 @@ Open `graph.html`. The left rail is every issue, including smaller findings that
 
 A solid edge was written in a file (`EXTRACTED`). A dashed edge was resolved across files, images, or deploy steps (`INFERRED`). Scroll to zoom and drag to pan. The path's confidence is its weakest hop.
 
-Select a node to list every elimination path through it, the edges that make the walk reachable, and what to remove.
+Select a node to list every elimination path through it, the edges that make the walk reachable, and what to remove. Open a finding on that node for the same record as the report: how an attacker can use it, the effect, the next step, and the exception record.
 
 `graph-report.md` lists the god nodes (the components the most edges pass through), the communities, and each chain. `graph.json` is the same snapshot, including `graph.schema_version`.
 
@@ -232,13 +247,14 @@ Select a node to list every elimination path through it, the edges that make the
 
 The threat model is the same snapshot as the attack paths, read through the framework you already use. An exception that removed an issue from the paths also removes it from these groups. Open `threat-model.html`. The page starts as lenses, not as a dump of every finding.
 
-Choose **Severity**, **Reachability**, **Exploitability**, **STRIDE**, **DREAD**, or **PASTA**. Then choose a group. If Critical says `Critical (4)`, that click lists those four findings and nothing else. Each row has:
+Choose **Severity**, **Reachability**, **Exploitability**, **STRIDE**, **DREAD**, or **PASTA**. Then choose a group. If Critical says `Critical (4)`, that click lists those four findings and nothing else. Select a row to open it. The open record starts with how an attacker can use the finding, on this component or by moving into another component. Then:
 
 - **Why this is first** — the band and score, whether the walk is reachable, the exploitability level, and why a single-file signature scanner would miss it
 - **Effect** — the asset at risk
 - **Next step** — the deletion or constraint
-
-Select a row to open the walk: file and line, the DREAD factors used by the score, the STRIDE labels, the PASTA stage, missing controls, and an exception id you can hand to the remediation record.
+- The walk, with file and line
+- DREAD factors used by the score, the STRIDE labels, the PASTA stage, and an exception id
+- **For the exception record** on every hop, including Copy and the inline false-positive mark
 
 **Scope** lists trust boundaries and assets. **Review notes** lists the reviewer panel. **Exceptions** lists cases the remediation team has marked as false positives. Those cases are not in the severity or framework groups.
 
@@ -259,6 +275,8 @@ DREAD here uses the factors already on the walk. Damage follows asset value. Aff
 - SQL
 
 A local model under `.pathfinder/environment.json` learns identifier shapes this repository already confirmed and blends them into the next scan. Nothing is sent off the machine.
+
+The unused-code pass reads Python, JavaScript, TypeScript, Java, Go, C#, and PHP. It recommends deletion only for a private or unexported symbol that no live code can reach. A public or exported symbol stays. Lockfiles are skipped, as are `vendor`, `third_party`, `site-packages`, `.next`, `coverage`, and `bower_components`, in addition to the directories listed below.
 
 Directories named `.git`, `node_modules`, `venv`, `.venv`, `__pycache__`, `dist`, `build`, `out`, `data`, `.pathfinder`, and `.pytest_cache` are skipped. Files larger than 1 MB are skipped.
 
@@ -308,7 +326,7 @@ system(params[:cmd])
 
 The next run reads the committed file from the checkout and leaves that case out of the paths, the graph, and the threat groups. A blank reason does not suppress a finding. If the exceptions file is unreadable, the scan keeps every finding and reports the file error. An older `.pathfinder/exceptions.yml` in that repository is still read.
 
-In `threat-model.html`, open **Exceptions** to see the reason and who marked the case.
+The **Scan summary** step counts those cases as **Exceptions skipped**. In `threat-model.html`, open **Exceptions** to see the reason and who marked the case. The same record is already on every finding: open the card, copy the snippet, and fill in the reason. Unused-code removals use rule APP07.
 
 ## 12. How do I ask whether one objective is reachable?
 
