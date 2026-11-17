@@ -774,9 +774,10 @@ def test_each_finding_explains_its_own_line(tmp_path: Path):
     first = next(item for item in hits if "jsonString" in (item.get("evidence") or ""))
     assert first["access"].startswith("An attacker can use")
     assert "jsonString" in first["access"]
-    assert "Security view:" in first["access"]
-    assert "Developer view:" in first["why"]
-    assert "scriptEngine.eval" in first["why"]
+    assert "Security view:" not in first["access"]
+    assert "Developer view:" not in first["why"]
+    assert "Whoever supplies the text" in first["access"]
+    assert "Whoever supplies the text" in first["why"]
     assert first["effect"].startswith("Effect:")
     assert "scriptEngine.eval" in first["recommendation"]
     assert "jsonString" in first["recommendation"]

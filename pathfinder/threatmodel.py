@@ -379,74 +379,73 @@ def _callee(evidence: str) -> str:
 
 
 def _reading(evidence: str, title: str, rule: str) -> dict[str, str]:
-    """Security impact and the code change, both tied to the recorded line."""
+    """Plain reason this line is an attack path, plus the change that removes it."""
     low = evidence.lower()
     call = _callee(evidence)
     named = f"`{call}`" if call else "this call"
     if any(token in low for token in ("eval(", "scriptengine", "exec(", "system(", "popen", "shell_exec", "subprocess", "processbuilder", "runtime.getruntime", "shell=true", "unserialize", "pickle", "readobject", "objectinputstream", "yaml.load")):
         return {
-            "security": f"Security view: {named} runs the text this line builds, inside the process that loads the file.",
-            "developer": f"Developer view: the source builds a string and passes it to {named} instead of calling a fixed function.",
-            "effect": f"the process is at risk because {named} runs a built string",
-            "change": f"delete {named} and call a fixed operation that does not evaluate, deserialize, or launch that string",
+            "does": f"The program builds text and then runs that text with {named}.",
+            "reason": "Whoever supplies the text chooses what the program does. The file no longer limits the program to one operation the author wrote.",
+            "effect": f"the running program can be made to follow the text passed to {named}",
+            "change": f"stop passing built text to {named} and call one fixed operation that does not run, unpack, or launch that text",
         }
     if re.search(r"\b(select|insert|update|delete)\b", low):
         return {
-            "security": "Security view: the database receives the statement text this line assembles.",
-            "developer": "Developer view: the SQL text is concatenated in the source instead of a fixed statement with a bound parameter.",
-            "effect": "stored data is at risk because the statement text is built in this file",
-            "change": "keep the SQL text fixed and bind the value",
+            "does": "The program glues a database question together from outside text, and the database treats that question as the instruction.",
+            "reason": "Whoever supplies the extra text can change which records the question asks for. A question written in the file, with the value kept beside it, does not allow that.",
+            "effect": "records in the database can be read or changed because the question itself is assembled here",
+            "change": "write the database question in full in the file and pass the value separately",
         }
     if any(token in low for token in ("requests.", "fetch(", "openstream", "http.get", "curl_exec", "resttemplate", "webclient", "169.254.169.254", "axios", "httpx.")):
         return {
-            "security": "Security view: this line opens a connection to a destination taken from the surrounding code.",
-            "developer": "Developer view: the outbound call takes its target from a variable instead of a declared host.",
-            "effect": "the service's outbound reach is at risk because this line chooses the destination",
-            "change": "allow only a declared destination and stop taking the URL from caller-controlled data",
+            "does": "The program opens a connection to an address taken from the surrounding code.",
+            "reason": "Whoever supplies that address chooses which system this program contacts. The file should name the allowed destination itself.",
+            "effect": "this program can be pointed at a system it was not meant to reach",
+            "change": "name the allowed destination in the file and stop taking the address from outside input",
         }
     if rule == "APP10" or any(token in low for token in ("permitall", "anonymous", "security: []", "norole", "isauthenticated")):
         return {
-            "security": "Security view: this line is the authorization decision, and it does not record a role or ownership check.",
-            "developer": "Developer view: the handler is reachable without an explicit role, owner, and state check in this file.",
-            "effect": "a privileged action is at risk because this line does not show an authorization check",
-            "change": "require an explicit role, owner, and state check before the action",
+            "does": "This line lets the action run without recording who is allowed to use it.",
+            "reason": "A person who can reach the action can use it without a role, an owner, or a state check in this file.",
+            "effect": "the action can be used by someone the file never identifies",
+            "change": "require a role, an owner, and a state check before the action runs",
         }
     if any(token in low for token in ("password", "secret", "api_key", "apikey", "token=", "aws_secret", "private_key")):
         return {
-            "security": "Security view: this line stores credential material in the tree the scan read.",
-            "developer": "Developer view: the secret is written into the file instead of being read from the runtime secret store.",
-            "effect": "the credential on this line is the asset at risk",
-            "change": "delete the credential from the file and read it from the runtime secret store",
+            "does": "This line writes a secret into the file.",
+            "reason": "Anyone who can read the file can read the secret. A secret belongs in the place the running program fetches it from, not in the source.",
+            "effect": "the secret written on this line can be read with the file",
+            "change": "delete the secret from the file and have the program read it from its secret store",
         }
     label = title or rule or "finding"
     return {
-        "security": f"Security view: this {label} is the statement the scan recorded, and the risk is what that statement does in this file.",
-        "developer": f"Developer view: the line is the {label} implementation{f', rule {rule}' if rule else ''}.",
-        "effect": f"this {label} is what the line exposes",
-        "change": f"change the {label} statement so the file no longer does that",
+        "does": f"The file contains this {label}.",
+        "reason": "The line is part of a path because of what it does, not because of a general category name.",
+        "effect": f"what this {label} does is the thing that needs to be removed",
+        "change": f"change this {label} so the file no longer does it",
     }
 
 
 def _explain(hop: dict, reachability: str, band: str, score, level: str, others: list[str]) -> dict[str, str]:
-    """One finding's security reading and the developer change for its own line."""
+    """Say why this line is an attack path, in words a non-specialist can follow."""
     evidence = _brief(str(hop.get("evidence") or ""))
     title = hop.get("label") or hop.get("title") or "this finding"
     place = _spot(hop)
     reading = _reading(evidence, str(title), str(hop.get("rule") or ""))
     quoted = f" The line is `{evidence}`." if evidence else ""
     if others:
-        tail = f" From this line the walk continues into {others[0]}."
+        tail = f" The same path continues into {others[0]}."
     elif reachability == "Reachable from an entry":
-        tail = " The entry that reaches this line is exposed, so a second finding is not required."
+        tail = " People outside the program can already reach the line, so no second file is required."
     else:
-        tail = " No second file is required. This statement is the whole issue."
+        tail = " This line is the path. No second file is required."
     where = f" at {place}" if place and place != "this file" else ""
-    access = f"An attacker can use {title}{where}. {reading['security']}{quoted}{tail}"
-    why = (
-        f"In {place}, {reading['developer']} "
-        f"That statement is why this finding is {band} {score}, with exploitability {level}."
+    access = (
+        f"An attacker can use {title}{where}. {reading['does']}{quoted} {reading['reason']}{tail}"
     )
-    effect = f"Effect: {reading['effect']}. The statement is in {place}."
+    why = f"{reading['reason']} That is why it ranks {band} {score}."
+    effect = f"Effect: {reading['effect']}. The line is in {place}."
     recommendation = f"In {place}, {reading['change']}."
     if evidence:
         recommendation += f" The line to change is `{evidence}`."
