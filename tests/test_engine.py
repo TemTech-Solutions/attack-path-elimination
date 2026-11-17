@@ -559,6 +559,118 @@ def test_local_learner_holds_placeholder_names(tmp_path: Path):
     )
 
 
+def test_unused_code_recommends_only_unreferenced_private_symbols(tmp_path: Path):
+    (tmp_path / "app.py").write_text(
+        "from helpers import used, abandoned\n"
+        "\n"
+        "def _dead():\n"
+        "    return 1\n"
+        "\n"
+        "def _called():\n"
+        "    return 2\n"
+        "\n"
+        "def public_entry():\n"
+        "    return used(_called())\n"
+        "\n"
+        "@decorator\n"
+        "def _registered():\n"
+        "    return 3\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "web.js").write_text(
+        "function jsDeadHelper() {\n"
+        "  return 1;\n"
+        "}\n"
+        "function jsLiveHelper() {\n"
+        "  return jsLiveHelper();\n"
+        "}\n"
+        "export function externalApi() {\n"
+        "  return 1;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "Box.java").write_text(
+        "public class Box {\n"
+        "  private void unusedSecret() {}\n"
+        "  private void usedSecret() { usedSecret(); }\n"
+        "  private static final String NAME = \"label\";\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "Box.php").write_text(
+        "<?php\n"
+        "class Box {\n"
+        "  private function phpDeadHelper() { return 1; }\n"
+        "  private function phpLiveHelper() { return $this->phpLiveHelper(); }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "Box.cs").write_text(
+        "class Box {\n"
+        "  private void csDeadHelper() {}\n"
+        "  private void csLiveHelper() { csLiveHelper(); }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "lib.go").write_text(
+        "package lib\n"
+        "func goDeadHelper() {}\n"
+        "func goLiveHelper() { goLiveHelper() }\n"
+        "func Exported() {}\n",
+        encoding="utf-8",
+    )
+    result = analyze(tmp_path)
+    removals = {item["name"] for item in result["unused"]["removals"]}
+    held = {item["name"] for item in result["unused"]["held"]}
+    assert "abandoned" in removals
+    assert "_dead" in removals
+    assert "jsDeadHelper" in removals
+    assert "goDeadHelper" in removals
+    assert "phpDeadHelper" in removals
+    assert "csDeadHelper" in removals
+    assert "phpLiveHelper" not in removals
+    assert "csLiveHelper" not in removals
+    assert "unusedSecret" in removals
+    assert "_called" not in removals
+    assert "_registered" not in removals
+    assert "public_entry" not in removals
+    assert "usedSecret" not in removals
+    assert "jsLiveHelper" not in removals
+    assert "goLiveHelper" not in removals
+    assert "externalApi" not in removals
+    assert "Exported" not in removals
+    assert "public_entry" in held
+    assert "externalApi" in held
+    assert "Exported" in held
+    dead = next(item for item in result["unused"]["removals"] if item["name"] == "_dead")
+    assert dead["what"]
+    assert dead["effect"]
+    assert dead["next"]
+    assert dead["confidence"] == "near 100%"
+    page = render_html(result)
+    assert "Unused code in this repository" in page
+    assert "What was found" in page
+    assert "How it affects the repo" in page
+    assert "Next step" in page
+    assert "Leave in place" in page
+    comment = pr_comment(result)
+    assert "### Unused code" in comment
+    assert "What was found:" in comment
+    (tmp_path / "pathfinder-exceptions.yml").write_text(
+        "version: 1\n"
+        "exceptions:\n"
+        "  - file: app.py\n"
+        "    rule: APP07\n"
+        "    line: 3\n"
+        "    evidence: def _dead():\n"
+        "    reason: Kept as a documented extension hook\n",
+        encoding="utf-8",
+    )
+    second = analyze(tmp_path)
+    assert "_dead" not in {item["name"] for item in second["unused"]["removals"]}
+    assert "abandoned" in {item["name"] for item in second["unused"]["removals"]}
+
+
 def test_score_bands():
     critical = score_path({"public"}, {"credential"}, {"sensitive"}, {"user_controlled", "missing_auth"})
     assert critical["band"] == "Critical"

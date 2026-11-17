@@ -89,6 +89,7 @@ def pr_comment(result: dict) -> str:
             top = item["paths"][0]
             lines.append(f"- {item['name']}: {item['found']} path(s), {top['band']} — {' → '.join(top['labels'][:6])}")
         lines.append("")
+    lines.extend(_unused_lines(result))
     lines.append("Open `report.html`, `graph.html`, and `threat-model.html` in the attack-path-report artifact for the full review.")
     lines.append("")
     lines.append("Static review only. The change to make is deletion or constraint of the path, not a new alert.")
@@ -105,6 +106,37 @@ def pr_comment(result: dict) -> str:
         for note in scan.get("notes") or []:
             lines.append(f"- {note}")
     return "\n".join(lines)
+
+
+def _unused_lines(result: dict) -> list[str]:
+    unused = result.get("unused") or {}
+    summary = unused.get("summary") or {}
+    removals = list(unused.get("removals") or [])
+    held = int(summary.get("held") or 0)
+    lines = ["### Unused code", ""]
+    lines.append(
+        f"Checked {summary.get('symbols', 0)} private, unexported, and public symbols "
+        f"across {summary.get('files', 0)} files. "
+        f"{len(removals)} can be removed. {held} public symbol(s) are defined once and were left in place."
+    )
+    lines.append("")
+    if not removals:
+        lines.append("No private or unexported symbol was defined once and never referenced. Nothing is recommended for removal.")
+        lines.append("")
+        return lines
+    lines.append("Each item below is unused inside this repository. Deleting it does not change the code that still runs.")
+    lines.append("")
+    for item in removals[:12]:
+        place = f"`{item.get('file')}:{item.get('line')}`"
+        lines.append(f"- **{item.get('name')}** {place}")
+        lines.append(f"  - What was found: {item.get('what')}")
+        lines.append(f"  - How it affects the repo: {item.get('effect')}")
+        lines.append(f"  - Next step: {item.get('next')}")
+    extra = len(removals) - 12
+    if extra > 0:
+        lines.append(f"- {extra} more removal(s) are in report.html.")
+    lines.append("")
+    return lines
 
 
 def pipeline_annotations(result: dict) -> list[str]:

@@ -432,6 +432,20 @@ def exception_scan(result: dict) -> dict:
         scorecard["critical_paths"] = sum(1 for path in paths if path.get("band") == "Critical")
         scorecard["high_paths"] = sum(1 for path in paths if path.get("band") == "High")
     root = Path(result["root"]) if result.get("root") else None
+    unused = result.get("unused") or {}
+    if unused:
+        loaded, _error = load_exceptions(root) if root else ([], "")
+        pool = list(loaded) + suppressed
+        kept_unused = []
+        for item in unused.get("removals") or []:
+            if hop_is_excepted(item, pool):
+                removed += 1
+                continue
+            kept_unused.append(item)
+        unused["removals"] = kept_unused
+        summary = unused.setdefault("summary", {})
+        summary["removals"] = len(kept_unused)
+        result["unused"] = unused
     notes = exception_gaps(root, suppressed) if root else []
     result["exception_scan"] = {"removed": removed, "notes": notes}
     return result

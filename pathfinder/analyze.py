@@ -41,6 +41,7 @@ from pathfinder.adapt import adapt_repository
 from pathfinder.exceptions import apply_exceptions, path_is_excepted
 from pathfinder.scoring import score_path
 from pathfinder.universal import analyze_unclaimed, deepen
+from pathfinder.unused import find_unused
 
 SKIP_DIRS = {
     ".git", "node_modules", "venv", ".venv", "__pycache__", "dist", "build",
@@ -143,6 +144,15 @@ def analyze(target: Path) -> dict:
     suppressed = list(getattr(model, "suppressed", []) or [])
     paths = [path for path in paths if not path_is_excepted(path, suppressed)]
     packaged = _package(model, paths)
+    try:
+        packaged["unused"] = find_unused(root)
+    except Exception as exc:
+        packaged["unused"] = {
+            "summary": {"files": 0, "symbols": 0, "removals": 0, "held": 0, "referenced": 0, "skipped": 0, "unparsed": 0, "omitted": 0, "error": f"{type(exc).__name__}: {exc}"},
+            "removals": [],
+            "held": [],
+            "held_omitted": 0,
+        }
     from pathfinder.query import attach_search
 
     return attach_search(packaged)

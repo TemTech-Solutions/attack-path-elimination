@@ -139,12 +139,27 @@
     margin: 6px 0 0;
     font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   }
+  .unused { margin-top: 16px; }
+  .outcomes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+  @media (max-width: 1100px) { .outcomes { grid-template-columns: 1fr; } }
+  .outcome, .unused-card {
+    background: #10192d;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .outcome h3, .unused-card h3 { margin: 0 0 6px; font-size: 15px; }
+  .outcome .count { font-size: 22px; font-weight: 700; }
+  .qa { display: grid; grid-template-columns: 1fr; gap: 2px; margin: 8px 0 0; }
+  .qa dt { color: var(--muted); margin-top: 8px; }
+  .qa dd { margin: 0; }
+  .unused-list { display: grid; gap: 10px; margin-top: 12px; }
 </style>
 </head>
 <body>
 <header>
   <h1 id="title">Attack paths</h1>
-  <p class="muted"><a href="graph.html">Open the graph</a> · <a href="threat-model.html">Open the threat model</a></p>
+  <p class="muted"><a href="graph.html">Open the graph</a> · <a href="threat-model.html">Open the threat model</a> · <a href="#unused-code">Unused code</a></p>
   <div class="muted" id="subtitle"></div>
   <div class="stats" id="stats"></div>
   <div class="banner" id="banner"></div>
@@ -167,6 +182,12 @@
     </section>
     <section class="panel" id="detail"><p class="muted">Select a component.</p></section>
   </div>
+  <section class="panel unused" id="unused-code">
+    <h2>Unused code in this repository</h2>
+    <p class="muted" id="unused-lead"></p>
+    <div class="outcomes" id="unused-outcomes"></div>
+    <div class="unused-list" id="unused-list"></div>
+  </section>
 </main>
 <script id="data" type="application/json">__PAYLOAD__</script>
 <script>
@@ -193,6 +214,8 @@ const stats = [
   ["Supply chain risk", card.supply_chain_risk]
 ];
 if (card.objectives) stats.push(["Objectives reached", card.objectives]);
+const unusedSummary = (data.unused && data.unused.summary) || {};
+stats.push(["Unused code", unusedSummary.removals || 0]);
 const statsEl = document.getElementById("stats");
 stats.forEach(([label, value]) => {
   const el = document.createElement("div");
@@ -576,9 +599,85 @@ function copyText(button, text) {
   done();
 }
 
+function addText(parent, tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  el.textContent = text;
+  parent.appendChild(el);
+  return el;
+}
+
+function outcomeCard(title, count, body) {
+  const card = document.createElement("article");
+  card.className = "outcome";
+  addText(card, "h3", "", title);
+  addText(card, "div", "count", String(count));
+  addText(card, "p", "muted", body);
+  return card;
+}
+
+function answerCard(item) {
+  const card = document.createElement("article");
+  card.className = "unused-card";
+  addText(card, "h3", "", (item.name || "Symbol") + " · " + (item.file || "") + ":" + (item.line || ""));
+  addText(card, "p", "muted", [item.language, item.kind, item.confidence].filter(Boolean).join(" · "));
+  const list = document.createElement("dl");
+  list.className = "qa";
+  [["What was found", item.what], ["How it affects the repo", item.effect], ["Next step", item.next]].forEach(([label, value]) => {
+    addText(list, "dt", "", label);
+    addText(list, "dd", "", value || "");
+  });
+  card.appendChild(list);
+  if (item.evidence) addText(card, "pre", "exception", item.evidence);
+  return card;
+}
+
+function renderUnused() {
+  const unused = data.unused || {};
+  const summary = unused.summary || {};
+  const removals = unused.removals || [];
+  const held = unused.held || [];
+  const lead = document.getElementById("unused-lead");
+  lead.textContent = summary.error
+    ? "The unused-code pass did not finish. " + summary.error
+    : "This pass reads the repository the action was pointed at. A symbol is recommended for removal only when it is private or unexported, it is defined once, and the name never appears again. Public symbols that are defined once stay in the repository, because a caller outside this tree may use them. Dependency folders are not part of this pass.";
+  const outcomes = document.getElementById("unused-outcomes");
+  outcomes.textContent = "";
+  outcomes.appendChild(outcomeCard(
+    "Remove",
+    removals.length,
+    removals.length
+      ? "Defined once. Nothing in this repository reads or calls the name. Deleting it does not change the code that still runs."
+      : "Nothing met the bar for removal."
+  ));
+  outcomes.appendChild(outcomeCard(
+    "Leave in place",
+    summary.held || 0,
+    "Defined once and never called here, but public or exported. This scan does not recommend deletion."
+  ));
+  const skipped = summary.skipped || 0;
+  outcomes.appendChild(outcomeCard(
+    "Already in use",
+    summary.referenced || 0,
+    "The name appears again in this repository, or the same name is defined more than once."
+      + (skipped ? " " + skipped + " test and entry-point symbols, such as main, are kept separately and are not part of this count." : "")
+  ));
+  const list = document.getElementById("unused-list");
+  list.textContent = "";
+  if (removals.length) addText(list, "h3", "", "Recommended removals");
+  removals.forEach((item) => list.appendChild(answerCard(item)));
+  const shownHeld = held.slice(0, 12);
+  if (shownHeld.length) addText(list, "h3", "", "Not recommended for removal");
+  shownHeld.forEach((item) => list.appendChild(answerCard(item)));
+  const more = (summary.held || 0) - shownHeld.length;
+  if (more > 0) addText(list, "p", "muted", more + " more public symbols are counted above and left in the repository.");
+  if (summary.omitted) addText(list, "p", "muted", summary.omitted + " unused symbol(s) were omitted by a recorded exception.");
+}
+
 function render() {
   renderList();
   renderChain();
+  renderUnused();
 }
 document.getElementById("mode").addEventListener("click", () => {
   showAll = !showAll;
