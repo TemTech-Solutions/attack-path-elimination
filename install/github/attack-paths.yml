@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Deep scan
-        uses: TemTech-Solutions/attack-path-elimination@95f0d46e498428a1d0cbde7eef9955f5af6228b9
+        uses: TemTech-Solutions/attack-path-elimination@79837616e5ca06243ba4dc2a94be9abfc82b82a8
         with:
           comment: "false"
           artifact: attack-path-review
@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Validate findings and apply exceptions
-        uses: TemTech-Solutions/attack-path-elimination@95f0d46e498428a1d0cbde7eef9955f5af6228b9
+        uses: TemTech-Solutions/attack-path-elimination@79837616e5ca06243ba4dc2a94be9abfc82b82a8
         with:
           exception_scan: "true"
           max_critical: "0"
