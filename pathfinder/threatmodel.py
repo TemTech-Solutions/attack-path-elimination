@@ -8,6 +8,7 @@ that classifies it, and the edge to delete or constrain.
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -244,7 +245,6 @@ def _review(item: dict, path: dict, result: dict) -> dict:
     if path.get("learned"):
         themes.add("learned")
     hops = item["hops"]
-    files = {hop.get("file") for hop in hops if hop.get("file")}
     exposure = _factor(item["dread"].get("exposure"), EXPOSURE)
     privilege = _factor(item["dread"].get("privilege"), PRIVILEGE)
     asset = _factor(item["dread"].get("asset"), ASSET)
@@ -257,21 +257,22 @@ def _review(item: dict, path: dict, result: dict) -> dict:
         learned = bool(path.get("learned")) or any(
             obs.get("learned") for obs in result.get("observations") or [] if obs.get("node_id") in set(item["node_ids"])
         )
-    gap = _gap(files, item["missing_controls"], learned, themes, hops)
     band = item["band"] or "Unscored"
-    why = f"{band} {item['score']}. {reachability}. Exploitability {level}. {gap}"
+    primary = next((hop for hop in hops if hop.get("evidence") or hop.get("file")), hops[0] if hops else {})
+    others = [hop.get("label") for hop in hops if hop.get("label") and hop is not primary]
+    explained = _explain(primary, reachability, band, item["score"], level, others)
     reviewed = {
         "severity": band,
         "reachability": reachability,
         "exploitability_level": level,
         "dread_groups": _dread_groups(exposure, asset, exploit, themes, reachability),
         "pasta": _pasta(themes, hops, learned, bool(path.get("focus_theme"))),
-        "why": why,
-        "effect": _effect(themes, item["dread"]),
-        "recommendation": item["remove"][0] if item["remove"] else "",
+        "why": explained["why"],
+        "effect": explained["effect"],
+        "recommendation": explained["recommendation"] or (item["remove"][0] if item["remove"] else ""),
         "learned": learned,
     }
-    reviewed["access"] = _access(item, reviewed["reachability"])
+    reviewed["access"] = explained["access"]
     reviewed["dread_text"] = _dread_text(item, reviewed["reachability"])
     return reviewed
 
@@ -346,48 +347,110 @@ def _pasta(themes: set[str], hops: list[dict], learned: bool, local: bool) -> st
     return "Stage 7 · Risk and impact"
 
 
-def _gap(files: set[str], missing: list, learned: bool, themes: set[str], hops: list[dict]) -> str:
-    if len(files) >= 2:
-        return "A single-file scanner does not keep this walk together."
-    if missing:
-        return "This is a missing control, which a signature scanner does not report."
-    if len(hops) >= 2:
-        return "The priority is the connected walk, not one isolated rule."
-    if learned or "review" in themes:
-        return "This comes from the structure of this repository, not from a public vulnerability signature."
-    return "The signal is local to this component. Confirm the file and line."
+def _brief(text: str, limit: int = 180) -> str:
+    line = " ".join(str(text or "").split())
+    if len(line) <= limit:
+        return line
+    return line[: limit - 1].rstrip() + "…"
 
 
-def _access(item: dict, reachability: str) -> str:
-    """How an attacker uses this finding, on its own or by moving into another component."""
-    hops = list(item.get("hops") or [])
-    title = item.get("name") or "This finding"
-    primary = next((hop for hop in hops if hop.get("file")), {})
-    place = ""
-    if primary.get("file"):
-        place = str(primary["file"]) + (f":{primary['line']}" if primary.get("line") else "")
-    others = []
-    for hop in hops[1:]:
-        label = hop.get("label") or ""
-        if label and label not in others:
-            others.append(label)
-    if len(hops) >= 2 and others:
-        start = hops[0].get("label") or "this component"
-        located = f" The finding itself is at {place}." if place else ""
-        return (
-            f"An attacker can use {title} to move from {start} into {others[-1]}. "
-            f"That other component is in this repository or on the infrastructure this walk reaches.{located}"
-        )
-    where = f" at {place}" if place else ""
-    if reachability == "Reachable from an entry":
-        return (
-            f"An attacker can use {title}{where} on its own. "
-            f"The entry is exposed, so access does not depend on another component."
-        )
-    return (
-        f"An attacker can use {title}{where} on its own. "
-        f"Access stays on this component and does not depend on another file."
+def _basename(file: str) -> str:
+    name = str(file or "").replace("\\", "/").rsplit("/", 1)[-1]
+    return name or "this file"
+
+
+def _spot(hop: dict) -> str:
+    name = _basename(str(hop.get("file") or ""))
+    line = hop.get("line")
+    if line:
+        return f"{name}:{line}"
+    return name
+
+
+def _callee(evidence: str) -> str:
+    calls = re.findall(r"([A-Za-z_][\w.]{0,80})\s*\(", evidence or "")
+    if not calls:
+        return ""
+    for name in reversed(calls):
+        leaf = name.rsplit(".", 1)[-1].lower()
+        if leaf in {"eval", "exec", "system", "popen", "unserialize", "loads", "load", "execute", "query", "openstream"} or "eval" in name.lower() or "exec" in name.lower():
+            return name
+    return calls[-1]
+
+
+def _reading(evidence: str, title: str, rule: str) -> dict[str, str]:
+    """Security impact and the code change, both tied to the recorded line."""
+    low = evidence.lower()
+    call = _callee(evidence)
+    named = f"`{call}`" if call else "this call"
+    if any(token in low for token in ("eval(", "scriptengine", "exec(", "system(", "popen", "shell_exec", "subprocess", "processbuilder", "runtime.getruntime", "shell=true", "unserialize", "pickle", "readobject", "objectinputstream", "yaml.load")):
+        return {
+            "security": f"Security view: {named} runs the text this line builds, inside the process that loads the file.",
+            "developer": f"Developer view: the source builds a string and passes it to {named} instead of calling a fixed function.",
+            "effect": f"the process is at risk because {named} runs a built string",
+            "change": f"delete {named} and call a fixed operation that does not evaluate, deserialize, or launch that string",
+        }
+    if re.search(r"\b(select|insert|update|delete)\b", low):
+        return {
+            "security": "Security view: the database receives the statement text this line assembles.",
+            "developer": "Developer view: the SQL text is concatenated in the source instead of a fixed statement with a bound parameter.",
+            "effect": "stored data is at risk because the statement text is built in this file",
+            "change": "keep the SQL text fixed and bind the value",
+        }
+    if any(token in low for token in ("requests.", "fetch(", "openstream", "http.get", "curl_exec", "resttemplate", "webclient", "169.254.169.254", "axios", "httpx.")):
+        return {
+            "security": "Security view: this line opens a connection to a destination taken from the surrounding code.",
+            "developer": "Developer view: the outbound call takes its target from a variable instead of a declared host.",
+            "effect": "the service's outbound reach is at risk because this line chooses the destination",
+            "change": "allow only a declared destination and stop taking the URL from caller-controlled data",
+        }
+    if rule == "APP10" or any(token in low for token in ("permitall", "anonymous", "security: []", "norole", "isauthenticated")):
+        return {
+            "security": "Security view: this line is the authorization decision, and it does not record a role or ownership check.",
+            "developer": "Developer view: the handler is reachable without an explicit role, owner, and state check in this file.",
+            "effect": "a privileged action is at risk because this line does not show an authorization check",
+            "change": "require an explicit role, owner, and state check before the action",
+        }
+    if any(token in low for token in ("password", "secret", "api_key", "apikey", "token=", "aws_secret", "private_key")):
+        return {
+            "security": "Security view: this line stores credential material in the tree the scan read.",
+            "developer": "Developer view: the secret is written into the file instead of being read from the runtime secret store.",
+            "effect": "the credential on this line is the asset at risk",
+            "change": "delete the credential from the file and read it from the runtime secret store",
+        }
+    label = title or rule or "finding"
+    return {
+        "security": f"Security view: this {label} is the statement the scan recorded, and the risk is what that statement does in this file.",
+        "developer": f"Developer view: the line is the {label} implementation{f', rule {rule}' if rule else ''}.",
+        "effect": f"this {label} is what the line exposes",
+        "change": f"change the {label} statement so the file no longer does that",
+    }
+
+
+def _explain(hop: dict, reachability: str, band: str, score, level: str, others: list[str]) -> dict[str, str]:
+    """One finding's security reading and the developer change for its own line."""
+    evidence = _brief(str(hop.get("evidence") or ""))
+    title = hop.get("label") or hop.get("title") or "this finding"
+    place = _spot(hop)
+    reading = _reading(evidence, str(title), str(hop.get("rule") or ""))
+    quoted = f" The line is `{evidence}`." if evidence else ""
+    if others:
+        tail = f" From this line the walk continues into {others[0]}."
+    elif reachability == "Reachable from an entry":
+        tail = " The entry that reaches this line is exposed, so a second finding is not required."
+    else:
+        tail = " No second file is required. This statement is the whole issue."
+    where = f" at {place}" if place and place != "this file" else ""
+    access = f"An attacker can use {title}{where}. {reading['security']}{quoted}{tail}"
+    why = (
+        f"In {place}, {reading['developer']} "
+        f"That statement is why this finding is {band} {score}, with exploitability {level}."
     )
+    effect = f"Effect: {reading['effect']}. The statement is in {place}."
+    recommendation = f"In {place}, {reading['change']}."
+    if evidence:
+        recommendation += f" The line to change is `{evidence}`."
+    return {"access": access, "why": why, "effect": effect, "recommendation": recommendation}
 
 
 def _dread_text(item: dict, reachability: str) -> str:
@@ -421,13 +484,36 @@ def attach_reviews(result: dict) -> dict:
             threat = _from_finding(named, result)
         if not threat:
             return
-        named = {
-            "name": item.get("title") or item.get("label") or threat.get("name") or "This finding",
-            "hops": threat.get("hops") or [],
+        evidence = item.get("evidence") or ""
+        if not evidence:
+            for candidate in threat.get("hops") or []:
+                if candidate.get("file") == item.get("file") and candidate.get("line") == item.get("line") and candidate.get("evidence"):
+                    evidence = candidate.get("evidence") or ""
+                    break
+        hop = {
+            "label": item.get("title") or item.get("label") or threat.get("name") or "This finding",
+            "file": item.get("file") or "",
+            "line": item.get("line"),
+            "evidence": evidence,
+            "rule": item.get("rule") or "",
         }
-        item["access"] = _access(named, threat.get("reachability") or "")
-        item["why"] = threat.get("why") or ""
-        item["effect"] = threat.get("effect") or ""
+        others = []
+        for candidate in threat.get("hops") or []:
+            label = candidate.get("label") or ""
+            if label and label != hop["label"] and label not in others:
+                others.append(label)
+        explained = _explain(
+            hop,
+            threat.get("reachability") or "",
+            item.get("band") or threat.get("band") or "Unscored",
+            item.get("score") if item.get("score") not in (None, "") else threat.get("score") or 0,
+            threat.get("exploitability_level") or "Not scored",
+            others,
+        )
+        item["access"] = explained["access"]
+        item["why"] = explained["why"]
+        item["effect"] = explained["effect"]
+        item["recommendation"] = explained["recommendation"]
         item["stride"] = list(threat.get("stride") or [])
         item["pasta"] = threat.get("pasta") or ""
         item["dread_text"] = threat.get("dread_text") or ""
@@ -463,26 +549,6 @@ def _hop_place(hop: dict) -> str:
     if not hop.get("file"):
         return ""
     return str(hop["file"]) + (f":{hop['line']}" if hop.get("line") else "")
-
-
-def _effect(themes: set[str], dread: dict) -> str:
-    asset = str(dread.get("asset") or "")
-    privilege = str(dread.get("privilege") or "")
-    if "credential" in themes or asset == "credential" or privilege == "credential":
-        return "Effect: credential material is the asset at risk on this walk."
-    if "rce" in themes or privilege == "rce":
-        return "Effect: the process is the asset at risk because a dynamic execution primitive is on this walk."
-    if themes & {"sqli", "database"} or asset in {"sensitive", "financial"}:
-        return "Effect: stored data is the asset at risk because this walk reaches it."
-    if "iam" in themes or privilege == "admin":
-        return "Effect: administrative authority is the asset at risk."
-    if themes & {"ssrf", "metadata"} or privilege == "ssrf":
-        return "Effect: the service's outbound reach is the asset at risk."
-    if themes & {"unauthenticated", "authz"}:
-        return "Effect: a privileged action sits on an entry that does not show an authorization check."
-    if "review" in themes or "learned" in themes:
-        return "Effect: the impact stays on this component until a walk connects it to an entry."
-    return "Effect: the connected components are the asset at risk."
 
 
 EXPOSURE = {"public": 1.0, "untrusted_trigger": 1.0, "authenticated": 0.72, "internal": 0.5}

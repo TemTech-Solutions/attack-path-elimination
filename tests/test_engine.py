@@ -757,6 +757,32 @@ def test_gate_fails_only_when_a_limit_is_set(payment_repo: Path, tmp_path: Path)
     assert allowed == 0
 
 
+def test_each_finding_explains_its_own_line(tmp_path: Path):
+    (tmp_path / "CodeInjectionServlet.java").write_text(
+        'void run(String jsonString) { scriptEngine.eval("JSON.parse" + jsonString + ""); }\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "OtherServlet.java").write_text(
+        'void run(String command) { scriptEngine.eval("calc" + command + ""); }\n',
+        encoding="utf-8",
+    )
+    result = analyze(tmp_path)
+    hits = [item for item in result["findings"] if "scriptEngine.eval" in (item.get("evidence") or "")]
+    assert len(hits) >= 2
+    accesses = {item["access"] for item in hits}
+    assert len(accesses) == len(hits)
+    first = next(item for item in hits if "jsonString" in (item.get("evidence") or ""))
+    assert first["access"].startswith("An attacker can use")
+    assert "jsonString" in first["access"]
+    assert "Security view:" in first["access"]
+    assert "Developer view:" in first["why"]
+    assert "scriptEngine.eval" in first["why"]
+    assert first["effect"].startswith("Effect:")
+    assert "scriptEngine.eval" in first["recommendation"]
+    assert "jsonString" in first["recommendation"]
+    assert "does not depend on another file" not in first["access"]
+
+
 def test_score_bands():
     critical = score_path({"public"}, {"credential"}, {"sensitive"}, {"user_controlled", "missing_auth"})
     assert critical["band"] == "Critical"
