@@ -776,8 +776,10 @@ def test_each_finding_explains_its_own_line(tmp_path: Path):
     assert "jsonString" in first["access"]
     assert "Security view:" not in first["access"]
     assert "Developer view:" not in first["why"]
-    assert "Whoever supplies the text" in first["access"]
-    assert "Whoever supplies the text" in first["why"]
+    assert "The person who supplies the text" in first["access"]
+    assert "The person who supplies the text" in first["why"]
+    assert first.get("foothold")
+    assert first.get("connected")
     assert first["effect"].startswith("Effect:")
     assert "scriptEngine.eval" in first["recommendation"]
     assert "jsonString" in first["recommendation"]

@@ -24,7 +24,11 @@ def runtime_summary(result: dict) -> str:
     findings = scorecard.get("findings", len(result.get("findings") or []))
     removals = int(((result.get("unused") or {}).get("summary") or {}).get("removals") or 0)
     skipped = _exceptions_skipped(result)
-    lines = ["## Attack path summary", "", "What was found", ""]
+    lines = ["## Attack path summary", ""]
+    about = ((result.get("application") or {}).get("summary") or "").strip()
+    if about:
+        lines.extend(["What this application does", "", about, ""])
+    lines.extend(["What was found", ""])
     lines.append(
         f"{len(critical)} critical path(s), {len(high)} high path(s), and {medium} medium path(s). "
         f"{findings} finding(s) stayed in the report. "
@@ -79,10 +83,14 @@ def pr_comment(result: dict) -> str:
             medium_findings.append(finding)
     extra = extra[:12] + medium_findings[:5]
     lines = ["### Attack-path review", ""]
+    about = ((result.get("application") or {}).get("summary") or "").strip()
+    if about:
+        lines.append(about)
+        lines.append("")
     lines.append(
         f"Reviewed {scorecard.get('components', 0)} components and {scorecard.get('findings', len(findings))} findings. "
-        "The work queue is critical, high, and the medium walks that connect an entry to an asset. "
-        "The HTML artifact keeps the full review."
+        "The work queue is the critical paths, the high paths, and the medium walks that connect an entry to an asset. "
+        "The HTML report keeps the full review."
     )
     lines.append("")
     lines.append(f"- Critical paths: {len(critical)}")
@@ -179,6 +187,10 @@ def _unused_lines(result: dict) -> list[str]:
         lines.append(f"  - How it affects the repo: {item.get('effect')}")
         lines.append(f"  - How we know: {item.get('why')}")
         lines.append(f"  - Next step: {item.get('next')}")
+        if item.get("architecture"):
+            lines.append(f"  - Architecture: {item.get('architecture')}")
+        if item.get("database"):
+            lines.append(f"  - Database: {item.get('database')}")
     extra = len(removals) - 12
     if extra > 0:
         lines.append(f"- {extra} more removal(s) are in report.html.")

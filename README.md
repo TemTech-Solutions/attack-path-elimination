@@ -175,7 +175,7 @@ include:
   - local: attack-paths.gitlab-ci.yml
 ```
 
-The job runs on merge requests and on the default branch. It fetches the full commit hash pinned in that file from `https://github.com/TemTech-Solutions/attack-path-elimination.git`, installs dependencies after upgrading pip, and analyzes the application checkout. The second analyze validates findings and applies exceptions, then the job prints `summary.md`. GitLab and Azure hooks stay on that hash. The release-tag option above is for the GitHub Action `uses:` line. Artifacts are under `attack-paths-report/`: `summary.md`, `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
+The job runs on merge requests and on the default branch. It fetches the full commit hash pinned in that file from `https://github.com/TemTech-Solutions/attack-path-elimination.git`, installs dependencies after upgrading pip, and analyzes the application checkout first. The log lists every file and component as it is read. The second command analyzes that checkout again, then validates findings and applies exceptions. The job then prints `summary.md`. GitLab and Azure hooks stay on that hash. The release-tag option above is for the GitHub Action `uses:` line. Artifacts are under `attack-paths-report/`: `summary.md`, `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
 
 ## How do I run it on Azure DevOps?
 
@@ -199,7 +199,7 @@ Or `python -m pathfinder install path\to\repository-to-scan --platform azure`.
 
 In Azure DevOps, create a pipeline from that file: **Pipelines**, **New pipeline**, select the repository, then **Existing Azure Pipelines YAML file**, and choose `azure-pipelines/attack-paths.yml`. Commit and run it.
 
-The pipeline runs on pull requests and on pushes to `main` or `master`. It checks the application out, fetches the full commit hash pinned in that file, upgrades pip, and analyzes that checkout. The second analyze validates findings and applies exceptions, then the log prints `summary.md`. The artifact is `attack-path-report`, and it contains `summary.md`, `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
+The pipeline runs on pull requests and on pushes to `main` or `master`. It checks the application out, fetches the full commit hash pinned in that file, upgrades pip, and analyzes that checkout first. The log lists every file and component as it is read. The second command analyzes that checkout again, then validates findings and applies exceptions. The log then prints `summary.md`. The artifact is `attack-path-report`, and it contains `summary.md`, `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
 
 On an Azure Repos pull request, the pipeline updates one comment marked `<!-- pathfinder-attack-paths -->`. That comment needs the build service identity to have permission to contribute to pull requests. If the permission is missing, the artifact is still published. A repository connected from GitHub or GitLab gets the artifact. The comment step runs for Azure Repos.
 

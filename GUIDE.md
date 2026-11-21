@@ -84,7 +84,7 @@ include:
   - local: attack-paths.gitlab-ci.yml
 ```
 
-The job runs on merge requests and on the default branch, in a `python:3.12` image. It fetches the full commit hash pinned in that file from GitHub, upgrades pip, installs requirements, and analyzes the project directory. A second analyze validates findings and applies exceptions, then the log prints `summary.md`. GitLab and Azure hooks stay on that hash. The release-tag option in section 1 is for the GitHub Action `uses:` line. Artifacts, kept even when the job fails, are:
+The job runs on merge requests and on the default branch, in a `python:3.12` image. It fetches the full commit hash pinned in that file from GitHub, upgrades pip, installs requirements, and analyzes the project directory first. The log lists every file and component as it is read. A second command analyzes the project again, then validates findings and applies exceptions. The log then prints `summary.md`. GitLab and Azure hooks stay on that hash. The release-tag option in section 1 is for the GitHub Action `uses:` line. Artifacts, kept even when the job fails, are:
 
 - `attack-paths-report/report.html`
 - `attack-paths-report/graph.html`
@@ -110,7 +110,7 @@ Or `python -m pathfinder install path/to/repository-to-scan --platform azure`.
 
 In Azure DevOps, open **Pipelines**, **New pipeline**, select the repository, choose **Existing Azure Pipelines YAML file**, and set the path to `azure-pipelines/attack-paths.yml`.
 
-The pipeline runs on pull requests and on `main` or `master`, on `ubuntu-latest`, with Python 3.12. It fetches the full commit hash pinned in that file from GitHub, upgrades pip, installs requirements, and analyzes the project directory. A second analyze validates findings and applies exceptions, then the log prints `summary.md`. The artifact `attack-path-report` is published even when a later step fails, and it contains:
+The pipeline runs on pull requests and on `main` or `master`, on `ubuntu-latest`, with Python 3.12. It fetches the full commit hash pinned in that file from GitHub, upgrades pip, installs requirements, and analyzes the project directory first. The log lists every file and component as it is read. A second command analyzes the project again, then validates findings and applies exceptions. The log then prints `summary.md`. The artifact `attack-path-report` is published even when a later step fails, and it contains:
 
 - `summary.md`
 - `report.html`
@@ -375,3 +375,19 @@ Believe the file and the line, then the edge the report tells you to delete. A c
 Confirm the file and line before you treat a hop as a defect. Python uses the AST. The languages with a dedicated parser contribute routes and sinks from source patterns. Every other program is read by the structural pass. A local model learns names this repository already confirmed and carries them to the next scan.
 
 A score ranks removal order inside this snapshot. It is not a CVSS score, and it is not proof that a specific request would succeed. The control behind each finding is the [OWASP Subtractive Hardening Top 10](https://github.com/OWASP/OWASP-Subtractive-Hardening-Top-10) baseline: delete the edge, or constrain it when it cannot be deleted. Other framework tags, including OWASP Top 10 and STRIDE, are a way to read the same walk. They are not a certification, and this repository is not an OWASP Foundation project.
+
+## 16. How do I add this scan to every repository?
+
+Open `report.html` and go to **Add this scan to a repository**. That section has the workflow for GitHub Actions, GitLab CI, and Azure DevOps, plus the local commands. Copy the workflow into the repository you want to scan. The application stays in that repository.
+
+The workflow has two steps. The first step analyzes the repository and prints each file and component while the job is running. The second step validates the findings after that analysis and applies recorded exceptions.
+
+From a clone of this repository you can write the same file for another checkout:
+
+```bash
+python -m pathfinder install path/to/repository-to-scan
+python -m pathfinder install path/to/repository-to-scan --platform gitlab
+python -m pathfinder install path/to/repository-to-scan --platform azure
+```
+
+The GitHub file is `.github/workflows/attack-paths.yml`. The GitLab file is `attack-paths.gitlab-ci.yml`. The Azure DevOps file is `azure-pipelines/attack-paths.yml`. Push the file, then open the pipeline log. You should see Phase 1 list every component, then Phase 2 validate the findings.

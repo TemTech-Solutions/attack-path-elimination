@@ -151,7 +151,9 @@ def build_paths(model: RepoModel) -> list[dict]:
     layered = _layered(paths)
     if layered is not None:
         paths.append(layered)
-    paths.sort(key=lambda item: (-item["score"], item["category"]))
+    from pathfinder.catalog import path_key
+
+    paths.sort(key=path_key)
     return paths[:40]
 
 
@@ -164,6 +166,7 @@ def _story(model, entry_id, reached, observations, depth, reachable, spec) -> di
     if len(labels) < 2:
         return None
     narrative = "An attacker can move from " + " → ".join(labels) + "."
+    explanation = _explanation(hops)
     exposures, privileges, assets, exploits = _factors(model, entry_id, included, themes, spec)
     scored = score_path(exposures, privileges, assets, exploits)
     identity = any(item.get("identity") for item in included) or "authz" in themes
@@ -178,6 +181,7 @@ def _story(model, entry_id, reached, observations, depth, reachable, spec) -> di
         "id": digest,
         "category": spec["category"],
         "narrative": narrative,
+        "explanation": explanation,
         "labels": labels,
         "hops": hops,
         "findings": [
@@ -408,6 +412,37 @@ def _obs_theme(observations, node_id) -> str | None:
     return None
 
 
+def _explanation(hops: list[dict]) -> str:
+    """Describe this walk from the lines on it, one sentence per step."""
+    if len(hops) < 2:
+        return ""
+    sentences = []
+    start = hops[0]
+    opening = f"This walk enters at {start.get('label') or 'the entry'}"
+    start_file = str(start.get("file") or "").replace("\\", "/").rsplit("/", 1)[-1]
+    if start_file:
+        opening += f" in {start_file}"
+    start_evidence = " ".join(str(start.get("evidence") or "").split())
+    if start_evidence and start_evidence != start.get("label"):
+        opening += f", on `{start_evidence[:140]}`"
+    sentences.append(opening + ".")
+    for hop in hops[1:]:
+        label = hop.get("label") or "the next step"
+        place = str(hop.get("file") or "").replace("\\", "/").rsplit("/", 1)[-1]
+        if hop.get("line"):
+            place = f"{place}:{hop['line']}" if place else str(hop["line"])
+        evidence = " ".join(str(hop.get("evidence") or "").split())
+        if evidence:
+            where = f" in {place}" if place else ""
+            sentences.append(f"The next step is {label}{where}. That step is the line `{evidence[:160]}`.")
+        elif place:
+            sentences.append(f"The next step is {label} in {place}.")
+        else:
+            sentences.append(f"The next step is {label}.")
+    sentences.append("Delete the step that lets the walk continue. Use a constraint only when that step cannot be deleted.")
+    return " ".join(sentences)
+
+
 def _entry_label(entry: dict) -> str:
     props = entry.get("properties") or {}
     if entry["kind"] == "endpoint":
@@ -482,6 +517,15 @@ def _layered(paths: list[dict]) -> dict | None:
     if cloud is None or supply is None:
         return None
     narrative = f"Across the stack, {supply['narrative']} {cloud['narrative']}"
+    supply_start = (supply.get("labels") or ["the pipeline"])[0]
+    supply_end = (supply.get("labels") or ["the pipeline"])[-1]
+    cloud_start = (cloud.get("labels") or ["the application"])[0]
+    cloud_end = (cloud.get("labels") or ["the application"])[-1]
+    explanation = (
+        f"These two walks meet in this repository. The pipeline walk starts at {supply_start} and ends at {supply_end}. "
+        f"The application walk starts at {cloud_start} and ends at {cloud_end}. "
+        "Delete a step on each walk. Use a constraint only when that step cannot be deleted."
+    )
     score = min(97, max(cloud["score"], supply["score"]))
     recommendations = []
     for text in list(supply["recommendations"]) + list(cloud["recommendations"]):
@@ -491,6 +535,7 @@ def _layered(paths: list[dict]) -> dict | None:
         "id": hashlib.sha1(narrative.encode()).hexdigest()[:12],
         "category": "stacked",
         "narrative": narrative,
+        "explanation": explanation,
         "labels": supply["labels"] + cloud["labels"],
         "hops": supply["hops"] + cloud["hops"],
         "findings": supply["findings"] + cloud["findings"],

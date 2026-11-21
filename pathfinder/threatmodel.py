@@ -73,6 +73,7 @@ def build_threat_model(result: dict) -> dict:
     critical = sum(1 for threat in threats if threat["band"] == "Critical")
     return {
         "repository": result.get("repository") or "repository",
+        "application": result.get("application") or {},
         "summary": {
             "threats": len(threats),
             "critical": critical,
@@ -273,7 +274,12 @@ def _review(item: dict, path: dict, result: dict) -> dict:
         "learned": learned,
     }
     reviewed["access"] = explained["access"]
+    reviewed["foothold"] = explained["foothold"]
+    reviewed["connected"] = explained["connected"]
     reviewed["dread_text"] = _dread_text(item, reviewed["reachability"])
+    for key in ("database", "cwe", "cwe_name", "cwe_rank", "owasp"):
+        if explained.get(key):
+            reviewed[key] = explained[key]
     return reviewed
 
 
@@ -367,89 +373,377 @@ def _spot(hop: dict) -> str:
     return name
 
 
+def _quotes(evidence: str) -> list[str]:
+    found = []
+    for match in re.finditer(r'"([^"]*)"|\'([^\']*)\'', evidence or ""):
+        found.append(match.group(1) if match.group(1) is not None else match.group(2))
+    return found
+
+
+def _calls(evidence: str) -> list[str]:
+    return re.findall(r"([A-Za-z_][\w.]{0,80})\s*\(", evidence or "")
+
+
 def _callee(evidence: str) -> str:
-    calls = re.findall(r"([A-Za-z_][\w.]{0,80})\s*\(", evidence or "")
-    if not calls:
-        return ""
+    calls = _calls(evidence)
     for name in reversed(calls):
         leaf = name.rsplit(".", 1)[-1].lower()
-        if leaf in {"eval", "exec", "system", "popen", "unserialize", "loads", "load", "execute", "query", "openstream"} or "eval" in name.lower() or "exec" in name.lower():
+        if leaf in {"eval", "exec", "system", "popen", "unserialize", "loads", "load", "execute", "query", "openstream", "url", "command"} or "eval" in name.lower() or "exec" in name.lower():
             return name
-    return calls[-1]
+    return calls[-1] if calls else ""
+
+
+def _method_and_param(evidence: str) -> tuple[str, str]:
+    match = re.search(
+        r"\b(?:def|function|func|void|public|private|protected|static)\s+([A-Za-z_]\w*)\s*\(\s*(?:[A-Za-z_][\w.<>\[\]]*\s+)?([A-Za-z_]\w*)",
+        evidence or "",
+    )
+    if not match:
+        return "", ""
+    return match.group(1), match.group(2)
+
+
+def _joined(evidence: str, call: str) -> list[tuple[str, str]]:
+    """Ordered pieces inside a call that builds one argument with +."""
+    if not call or "+" not in (evidence or ""):
+        return []
+    match = re.search(re.escape(call) + r"\s*\(([^)]*)\)", evidence)
+    inner = match.group(1) if match else ""
+    if "+" not in inner:
+        return []
+    parts: list[tuple[str, str]] = []
+    for piece in inner.split("+"):
+        piece = piece.strip()
+        quoted = re.fullmatch(r'"([^"]*)"|\'([^\']*)\'', piece)
+        if quoted:
+            parts.append(("lit", quoted.group(1) if quoted.group(1) is not None else quoted.group(2)))
+        elif re.fullmatch(r"[A-Za-z_][\w.]*", piece):
+            parts.append(("name", piece.split(".")[-1]))
+        elif piece:
+            parts.append(("expr", piece))
+    return parts
+
+
+def _join_words(parts: list[tuple[str, str]]) -> str:
+    words = []
+    for kind, value in parts:
+        if kind == "lit" and value == "":
+            words.append("an empty string")
+        elif kind == "lit":
+            words.append(f'the written text "{value}"')
+        elif kind == "name":
+            words.append(f"the value held in {value}")
+        else:
+            words.append(value)
+    if not words:
+        return "the argument"
+    if len(words) == 1:
+        return words[0]
+    if len(words) == 2:
+        return f"{words[0]} and then {words[1]}"
+    return ", then ".join(words[:-1]) + ", then " + words[-1]
+
+
+def _changing_name(parts: list[tuple[str, str]], param: str) -> str:
+    for kind, value in parts:
+        if kind == "name":
+            return value
+    return param
+
+
+def _fixed_text(parts: list[tuple[str, str]]) -> str:
+    for kind, value in parts:
+        if kind == "lit" and value:
+            return value
+    return ""
+
+
+def _prefix_note(literal: str, variable: str, call: str) -> str:
+    if not literal:
+        return f"No operation is written beside {call}. {variable} is the whole argument."
+    low = literal.lower()
+    if "json" in low or "parse" in low:
+        return (
+            f'"{literal}" is a parse prefix, not a finished parse. '
+            f"{call} keeps going through {variable}, which is concatenated after that prefix."
+        )
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,40}", literal):
+        return (
+            f'"{literal}" is a short name at the front of the argument. '
+            f"{call} still receives everything {variable} adds after that name."
+        )
+    if any(word in low for word in ("select", "insert", "update", "delete")):
+        return (
+            f'"{literal}" is the start of a database question. '
+            f"{variable} is concatenated into that same question."
+        )
+    return (
+        f'"{literal}" stays in the argument, and {variable} is concatenated onto it. '
+        f"{call} receives both as one value."
+    )
+
+
+def _sql_bits(evidence: str) -> tuple[str, str, str]:
+    verb = ""
+    match = re.search(r"\b(SELECT|INSERT|UPDATE|DELETE)\b", evidence or "", re.I)
+    if match:
+        verb = match.group(1).upper()
+    table = ""
+    table_match = re.search(r"\bFROM\s+([A-Za-z_][\w]*)|\bINTO\s+([A-Za-z_][\w]*)|\bUPDATE\s+([A-Za-z_][\w]*)", evidence or "", re.I)
+    if table_match:
+        table = next(group for group in table_match.groups() if group)
+    variable = ""
+    tail = (evidence or "").split("+")[-1] if "+" in (evidence or "") else ""
+    skip = {"str", "int", "format", "query", "select", "from", "where", "and", "or", "execute", "executemany"}
+    for name in reversed(re.findall(r"\b([A-Za-z_][\w]*)\b", tail)):
+        if name.lower() not in skip:
+            variable = name
+            break
+    return verb, table, variable
+
+
+def _neighbor_labels(others: list) -> list[str]:
+    labels = []
+    for item in others or []:
+        label = item.get("label") if isinstance(item, dict) else str(item)
+        if label and label not in labels:
+            labels.append(label)
+    return labels
 
 
 def _reading(evidence: str, title: str, rule: str) -> dict[str, str]:
-    """Plain reason this line is an attack path, plus the change that removes it."""
-    low = evidence.lower()
+    """Describe this line from the code on it, not from a shared paragraph."""
+    low = (evidence or "").lower()
     call = _callee(evidence)
-    named = f"`{call}`" if call else "this call"
-    if any(token in low for token in ("eval(", "scriptengine", "exec(", "system(", "popen", "shell_exec", "subprocess", "processbuilder", "runtime.getruntime", "shell=true", "unserialize", "pickle", "readobject", "objectinputstream", "yaml.load")):
+    method, param = _method_and_param(evidence)
+    parts = _joined(evidence, call)
+    host = f"Method {method} " if method else "This line "
+    quotes = [item for item in _quotes(evidence) if item]
+    learned = re.search(r"shares the token '([^']+)' with the ([a-z]+) names", evidence or "", re.I)
+    if learned:
+        token, kind = learned.group(1), learned.group(2)
         return {
-            "does": f"The program builds text and then runs that text with {named}.",
-            "reason": "Whoever supplies the text chooses what the program does. The file no longer limits the program to one operation the author wrote.",
-            "effect": f"the running program can be made to follow the text passed to {named}",
-            "change": f"stop passing built text to {named} and call one fixed operation that does not run, unpack, or launch that text",
+            "does": f"This line is grouped with the {kind} names already confirmed in this repository because both contain '{token}'.",
+            "reason": f"The shared token is '{token}'. This is a separate line from the {kind} finding it was learned from.",
+            "why": f"'{token}' is the name that places this line in the {kind} group.",
+            "effect": f"this line stays in the {kind} group while it uses '{token}' the same way",
+            "change": f"remove the {kind} use of '{token}' on this line, or record an exception if that name is intentional",
+            "anchor": f"the shared {kind} token '{token}'",
+        }
+
+    if parts and any(token in low for token in ("eval(", "scriptengine", "exec(", "system(", "popen", "shell_exec")):
+        variable = _changing_name(parts, param)
+        fixed = _fixed_text(parts)
+        subject = variable or "the joined text"
+        return {
+            "does": f"{host}passes {call} one argument made by joining {_join_words(parts)}.",
+            "reason": f"The person who supplies the text in {subject} chooses the rest of that argument. {_prefix_note(fixed, subject, call)}",
+            "why": (
+                f"The person who supplies the text is not held to "
+                + (f'the written text "{fixed}"' if fixed else "one operation written in the file")
+                + f", because {subject} is concatenated into the same argument of {call}."
+            ),
+            "effect": (
+                f'{call} runs one argument that contains "{fixed}" and also contains {subject}'
+                if fixed
+                else f"{call} runs {subject} as the argument"
+            ),
+            "change": _execution_change(call, subject, fixed),
+            "anchor": f"{call} joining {subject}" + (f' onto "{fixed}"' if fixed else ""),
+        }
+    if any(token in low for token in ("pickle", "unserialize", "readobject", "objectinputstream", "yaml.load")):
+        carrier = param or _changing_name(parts, "") or "the loaded value"
+        loader = call or "the loader on this line"
+        return {
+            "does": f"{host}rebuilds objects by passing {carrier} to {loader}.",
+            "reason": f"{carrier} is not a data record with a fixed set of fields. {loader} accepts it as a serialized object.",
+            "why": f"{loader} decides what to build from {carrier}, and this file does not list the allowed types.",
+            "effect": f"{loader} can construct objects from {carrier} while loading",
+            "change": f"stop passing {carrier} to {loader}, and read a data format that cannot construct objects",
+            "anchor": f"{loader} rebuilding objects from {carrier}",
+        }
+    if any(token in low for token in ("eval(", "scriptengine", "exec(", "system(", "popen", "shell_exec", "subprocess", "processbuilder", "runtime.getruntime", "shell=true")):
+        subject = param or "the argument"
+        return {
+            "does": f"{host}hands {subject} to {call or 'a call that runs its argument'}.",
+            "reason": f"The person who supplies the text in {subject} chooses what {call or 'that call'} runs. The file does not name one fixed operation.",
+            "why": f"The person who supplies the text reaches {call or 'this call'} directly through {subject}.",
+            "effect": f"{call or 'the call'} runs {subject}",
+            "change": f"delete the call to {call or 'this operation'} and keep {subject} as data for one operation written in full in this file",
+            "anchor": f"{call or 'the call'} running {subject}",
         }
     if re.search(r"\b(select|insert|update|delete)\b", low):
+        verb, table, variable = _sql_bits(evidence)
+        subject = variable or param or "the added value"
+        question = verb or "database"
+        about = f" for {table}" if table else ""
         return {
-            "does": "The program glues a database question together from outside text, and the database treats that question as the instruction.",
-            "reason": "Whoever supplies the extra text can change which records the question asks for. A question written in the file, with the value kept beside it, does not allow that.",
-            "effect": "records in the database can be read or changed because the question itself is assembled here",
-            "change": "write the database question in full in the file and pass the value separately",
+            "does": f"{host}builds a {question} question{about} by concatenating {subject} into the question text.",
+            "reason": f"{subject} sits inside the {question} question{about}, so the database reads {subject} as part of the instruction rather than as a bound value.",
+            "why": f"The {question} question{about} is assembled on this line, and {subject} is one of the pieces.",
+            "effect": f"the {question} question{about} changes with {subject}",
+            "change": f"write the full {question} question{about} in the file, and pass {subject} as a bound value beside it",
+            "anchor": f"the {question} question{about} that includes {subject}",
         }
-    if any(token in low for token in ("requests.", "fetch(", "openstream", "http.get", "curl_exec", "resttemplate", "webclient", "169.254.169.254", "axios", "httpx.")):
+    if any(token in low for token in ("requests.", "fetch(", "openstream", "http.get", "curl_exec", "resttemplate", "webclient", "169.254.169.254", "axios", "httpx.", "new url")):
+        subject = param or "the address"
+        destination = quotes[0] if quotes else ""
+        if "169.254.169.254" in low:
+            does = f"{host}contacts the instance metadata address 169.254.169.254."
+            reason = "That address serves cloud credentials to the workload. This line reaches it from application code."
+            why = "The metadata address is written into this request, so the workload can read the role credentials."
+            effect = "the request reaches the instance metadata service"
+            change = "delete the request to 169.254.169.254"
+            anchor = "the request to the instance metadata address 169.254.169.254"
+        elif destination:
+            does = f"{host}opens {call or 'a request'} to the address \"{destination}\"."
+            reason = f"The destination is the written address \"{destination}\"{(', and ' + subject + ' is also part of the address') if subject != 'the address' else ''}."
+            why = f"The host this line contacts is \"{destination}\", taken from this file rather than from a fixed allowlist beside the call."
+            effect = f"the request goes to \"{destination}\""
+            change = f"delete the request to \"{destination}\" unless that host is the one this file is allowed to call, and stop building the address from {subject}"
+            anchor = f"the request to \"{destination}\""
+        else:
+            does = f"{host}passes {subject} to {call or 'an outbound call'} as the address."
+            reason = f"{subject} chooses the host. This file does not write the allowed host next to {call or 'the call'}."
+            why = f"{call or 'The outbound call'} receives its destination from {subject}."
+            effect = f"{call or 'the request'} contacts whatever host is in {subject}"
+            change = f"write the allowed host in the file and stop passing {subject} to {call or 'the outbound call'}"
+            anchor = f"{call or 'the outbound call'} using {subject} as the address"
+        return {"does": does, "reason": reason, "why": why, "effect": effect, "change": change, "anchor": anchor}
+    if rule in {"APP10", "APP01"} or any(token in low for token in ("permitall", "anonymous", "security: []", "norole", "isauthenticated")) or re.search(r"\b(GET|POST|PUT|DELETE|PATCH)\s+/", evidence or ""):
+        route = evidence.strip() if re.search(r"\b(GET|POST|PUT|DELETE|PATCH)\s+/", evidence or "") else (quotes[0] if quotes else title)
         return {
-            "does": "The program opens a connection to an address taken from the surrounding code.",
-            "reason": "Whoever supplies that address chooses which system this program contacts. The file should name the allowed destination itself.",
-            "effect": "this program can be pointed at a system it was not meant to reach",
-            "change": "name the allowed destination in the file and stop taking the address from outside input",
+            "does": f"This file publishes {route} without a role, an owner, or a required state on the same line.",
+            "reason": f"A caller who can request {route} is not identified by this file before the action runs.",
+            "why": f"{route} has no authorization check in this file, so the route itself is the open step.",
+            "effect": f"{route} runs for a caller this file does not name",
+            "change": f"require a role, an owner, and a state check before {route} runs, or delete {route} if the application does not need it",
+            "anchor": f"the open route {route}",
         }
-    if rule == "APP10" or any(token in low for token in ("permitall", "anonymous", "security: []", "norole", "isauthenticated")):
+    if any(token in low for token in ("password", "secret", "api_key", "apikey", "token=", "aws_secret", "private_key", "aws_access")):
+        assigned = ""
+        assign = re.search(r"\b([A-Za-z_][\w.]*)\s*[:=]", evidence or "")
+        if assign:
+            assigned = assign.group(1)
+        shown = quotes[0] if quotes else ""
+        name = assigned or "the secret"
+        if shown:
+            does = f"This line assigns {name} in the file, and the assigned text is written here."
+            reason = f"Anyone who can read the file can read {name}. The value is not loaded from a secret store."
+        else:
+            does = f"This line places {name} in the file."
+            reason = f"Anyone who can read the file can read {name}."
         return {
-            "does": "This line lets the action run without recording who is allowed to use it.",
-            "reason": "A person who can reach the action can use it without a role, an owner, or a state check in this file.",
-            "effect": "the action can be used by someone the file never identifies",
-            "change": "require a role, an owner, and a state check before the action runs",
+            "does": does,
+            "reason": reason,
+            "why": f"{name} is stored in the source, so reading the file is enough to read it.",
+            "effect": f"{name} can be read from this file",
+            "change": f"delete {name} from the file and read it from the secret store at runtime",
+            "anchor": f"{name} written in this file",
         }
-    if any(token in low for token in ("password", "secret", "api_key", "apikey", "token=", "aws_secret", "private_key")):
+    if "*" in (evidence or "") and any(token in low for token in ("action", "resource", "principal", "0.0.0.0/0")):
         return {
-            "does": "This line writes a secret into the file.",
-            "reason": "Anyone who can read the file can read the secret. A secret belongs in the place the running program fetches it from, not in the source.",
-            "effect": "the secret written on this line can be read with the file",
-            "change": "delete the secret from the file and have the program read it from its secret store",
+            "does": f"This line grants a wildcard: `{_brief(evidence, 120)}`.",
+            "reason": "The wildcard is written in the policy, so the principal is not limited to one operation and one resource.",
+            "why": "A star in Action, Resource, Principal, or the network range is the whole permission.",
+            "effect": "the policy allows more than the operations this workload performs",
+            "change": "replace the wildcard with the named principal, actions, and resources this workload uses",
+            "anchor": "the wildcard grant on this line",
         }
-    label = title or rule or "finding"
+    distinctive = quotes[0] if quotes else (call or title or rule or "this line")
     return {
-        "does": f"The file contains this {label}.",
-        "reason": "The line is part of a path because of what it does, not because of a general category name.",
-        "effect": f"what this {label} does is the thing that needs to be removed",
-        "change": f"change this {label} so the file no longer does it",
+        "does": f"This line is `{_brief(evidence, 140) or title}`.",
+        "reason": f"{title or rule or 'This finding'} is raised here because of {distinctive}, which is specific to this line.",
+        "why": f"The detail that makes this finding this case is {distinctive}.",
+        "effect": f"{distinctive} is the behavior to remove from this line",
+        "change": f"change this line so it no longer does `{_brief(evidence, 80) or distinctive}`",
+        "anchor": str(distinctive),
     }
 
 
-def _explain(hop: dict, reachability: str, band: str, score, level: str, others: list[str]) -> dict[str, str]:
-    """Say why this line is an attack path, in words a non-specialist can follow."""
-    evidence = _brief(str(hop.get("evidence") or ""))
+def _execution_change(call: str, variable: str, fixed: str) -> str:
+    if fixed and ("json" in fixed.lower() or "parse" in fixed.lower()):
+        return f'parse {variable} with a JSON parser, delete {call}, and do not concatenate "{fixed}" onto {variable}'
+    if fixed:
+        return (
+            f'delete {call}, and stop concatenating "{fixed}" with {variable}. '
+            f"Keep {variable} as data for one operation that is written in full in this file"
+        )
+    return f"delete {call}, and stop passing {variable} to it"
+
+
+def _explain(hop: dict, reachability: str, band: str, score, level: str, others: list) -> dict[str, str]:
+    """Each section states a different fact about this line."""
+    raw_evidence = str(hop.get("evidence") or "")
+    evidence = _brief(raw_evidence)
     title = hop.get("label") or hop.get("title") or "this finding"
     place = _spot(hop)
     reading = _reading(evidence, str(title), str(hop.get("rule") or ""))
-    quoted = f" The line is `{evidence}`." if evidence else ""
-    if others:
-        tail = f" The same path continues into {others[0]}."
-    elif reachability == "Reachable from an entry":
-        tail = " People outside the program can already reach the line, so no second file is required."
-    else:
-        tail = " This line is the path. No second file is required."
     where = f" at {place}" if place and place != "this file" else ""
-    access = (
-        f"An attacker can use {title}{where}. {reading['does']}{quoted} {reading['reason']}{tail}"
-    )
-    why = f"{reading['reason']} That is why it ranks {band} {score}."
+    anchor = reading.get("anchor") or title
+    labels = _neighbor_labels(others)
+    if labels:
+        described = []
+        for item in others:
+            if isinstance(item, dict) and item.get("evidence"):
+                described.append(f"{item.get('label')} (`{_brief(item.get('evidence') or '', 80)}`)")
+            else:
+                label = item.get("label") if isinstance(item, dict) else str(item)
+                if label:
+                    described.append(label)
+        if len(described) == 1:
+            connected = (
+                f"The same walk also includes {described[0]}. "
+                "That step has its own line. It is not a restatement of this one."
+            )
+        else:
+            connected = (
+                "The same walk also includes "
+                + ", ".join(described[:-1])
+                + f", and {described[-1]}. Each of those steps has its own line."
+            )
+    else:
+        connected = f"No other finding is chained to {anchor}. This walk is only that step in {place}."
+    nxt = labels[0] if labels else ""
+    if labels and reachability == "Reachable from an entry":
+        foothold = (
+            f"An outside caller can already reach {place} and continue to {nxt}. "
+            f"The foothold they use here is {anchor}."
+        )
+    elif labels:
+        foothold = f"From {anchor} in {place}, this walk continues to {nxt}."
+    elif reachability == "Reachable from an entry":
+        foothold = (
+            f"An outside caller can reach {place} directly. "
+            f"The foothold is {anchor}, and no later step is on this walk."
+        )
+    else:
+        foothold = (
+            f"No outside caller reaches {place} in this scan. "
+            f"If another path arrives at this file, the foothold is {anchor}."
+        )
+    access = f"An attacker can use {title}{where}. {reading['does']} {reading['reason']}"
+    why = f"{reading.get('why') or reading['reason']} That is why this finding ranks {band} {score}."
     effect = f"Effect: {reading['effect']}. The line is in {place}."
     recommendation = f"In {place}, {reading['change']}."
     if evidence:
         recommendation += f" The line to change is `{evidence}`."
-    return {"access": access, "why": why, "effect": effect, "recommendation": recommendation}
+    from pathfinder.catalog import match as catalog_match
+
+    info = catalog_match(str(hop.get("rule") or ""), raw_evidence)
+    return {
+        "access": access,
+        "foothold": foothold,
+        "connected": connected,
+        "why": why,
+        "effect": effect,
+        "recommendation": recommendation,
+        "database": info.get("database") or "",
+        "cwe": info.get("cwe") or "",
+        "cwe_name": info.get("cwe_name") or "",
+        "cwe_rank": info.get("cwe_rank"),
+        "owasp": info.get("owasp") or "",
+    }
 
 
 def _dread_text(item: dict, reachability: str) -> str:
@@ -497,10 +791,19 @@ def attach_reviews(result: dict) -> dict:
             "rule": item.get("rule") or "",
         }
         others = []
+        seen = set()
         for candidate in threat.get("hops") or []:
             label = candidate.get("label") or ""
-            if label and label != hop["label"] and label not in others:
-                others.append(label)
+            if not label or label == hop["label"] or label in seen:
+                continue
+            seen.add(label)
+            others.append(
+                {
+                    "label": label,
+                    "evidence": candidate.get("evidence") or "",
+                    "file": candidate.get("file") or "",
+                }
+            )
         explained = _explain(
             hop,
             threat.get("reachability") or "",
@@ -510,9 +813,14 @@ def attach_reviews(result: dict) -> dict:
             others,
         )
         item["access"] = explained["access"]
+        item["foothold"] = explained["foothold"]
+        item["connected"] = explained["connected"]
         item["why"] = explained["why"]
         item["effect"] = explained["effect"]
         item["recommendation"] = explained["recommendation"]
+        for key in ("database", "cwe", "cwe_name", "cwe_rank", "owasp"):
+            if explained.get(key):
+                item[key] = explained[key]
         item["stride"] = list(threat.get("stride") or [])
         item["pasta"] = threat.get("pasta") or ""
         item["dread_text"] = threat.get("dread_text") or ""
@@ -541,6 +849,14 @@ def attach_reviews(result: dict) -> dict:
     for node in (result.get("graph") or {}).get("nodes") or []:
         for finding in node.get("findings") or []:
             paint(finding)
+    from pathfinder.catalog import finding_key, path_key
+
+    findings = result.get("findings") or []
+    if isinstance(findings, list):
+        findings.sort(key=finding_key)
+    paths = result.get("paths") or []
+    if isinstance(paths, list):
+        paths.sort(key=path_key)
     return result
 
 

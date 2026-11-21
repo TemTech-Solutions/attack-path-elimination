@@ -61,10 +61,11 @@ runs:
       with:
         python-version: "3.12"
 
-    - name: Validate findings and analyze this repository
+    - name: Deep analysis of this repository
       id: analyze
       shell: bash
       env:
+        PYTHONUNBUFFERED: "1"
         EXCEPTION_SCAN: ${{ inputs.exception_scan }}
         MAX_CRITICAL: ${{ inputs.max_critical }}
         MAX_HIGH: ${{ inputs.max_high }}
@@ -82,6 +83,17 @@ runs:
           extra+=(--max-high "$MAX_HIGH")
         fi
         PYTHONPATH="${{ github.action_path }}" python -m pathfinder analyze "${{ inputs.path }}" --out "${{ inputs.out }}" "${extra[@]}"
+
+    - name: Validate findings
+      if: always() && (steps.analyze.outcome == 'success' || steps.analyze.outcome == 'failure')
+      shell: bash
+      run: |
+        echo "Validation runs after the repository analysis."
+        if [ -f "${{ inputs.out }}/summary.md" ]; then
+          cat "${{ inputs.out }}/summary.md"
+        else
+          echo "The analysis did not write a summary to validate."
+        fi
 
     - name: Upload the HTML report
       if: steps.analyze.outcome == 'success' || steps.analyze.outcome == 'failure'

@@ -28,6 +28,26 @@ class InstallError(Exception):
     pass
 
 
+def integration_guide() -> dict:
+    """Workflow text a report can show so a team can scan another repository."""
+    return {
+        "note": (
+            "Copy one workflow into each repository you want to scan. "
+            "The application stays in that repository. This tool is downloaded when the job runs. "
+            "The first job analyzes the repository. The next job validates the findings and applies recorded exceptions."
+        ),
+        "github": _github_workflow(PUBLIC_SLUG, PUBLIC_REF),
+        "gitlab": _gitlab_ci(PUBLIC_GIT, PUBLIC_REF),
+        "azure": _azure_pipeline(PUBLIC_GIT, PUBLIC_REF),
+        "local": (
+            "python -m pip install --upgrade pip\n"
+            "python -m pip install -r requirements.txt\n"
+            "python -m pathfinder analyze path/to/repository --out out/repository\n"
+            "python -m pathfinder analyze path/to/repository --out out/repository --exception-scan --max-critical 0"
+        ),
+    }
+
+
 def install(
     target: Path,
     *,
@@ -108,7 +128,7 @@ jobs:
       - name: Checkout this repository
         uses: actions/checkout@{CHECKOUT_REF} # v4.4.0
 
-      - name: Validate findings and apply exceptions
+      - name: Validate findings after analysis
         uses: {action}
         with:
           exception_scan: "true"
@@ -144,11 +164,12 @@ attack-paths:
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" checkout --detach FETCH_HEAD
     - python -m pip install --upgrade pip
     - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
-    - PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
-    - echo "Runtime scan validates confirmed findings and applies exception handling in the same run."
+    - echo "Phase 1: deep analysis of this repository. Every component is printed as it is read."
+    - PYTHONUNBUFFERED=1 PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
+    - echo "Phase 1 finished. Phase 2 validates findings after that analysis and applies recorded exceptions."
     - |
       gate=0
-      PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --exception-scan --max-critical 0 || gate=$?
+      PYTHONUNBUFFERED=1 PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --exception-scan --max-critical 0 || gate=$?
       cat attack-paths-report/summary.md
       exit "$gate"
   artifacts:
@@ -202,10 +223,11 @@ steps:
       git -C "$TOOL" checkout --detach FETCH_HEAD
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
-      PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
-      echo "Runtime scan validates confirmed findings and applies exception handling in the same run."
+      echo "Phase 1: deep analysis of this repository. Every component is printed as it is read."
+      PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
+      echo "Phase 1 finished. Phase 2 validates findings after that analysis and applies recorded exceptions."
       gate=0
-      PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan --max-critical 0 || gate=$?
+      PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan --max-critical 0 || gate=$?
       cat "$(Build.ArtifactStagingDirectory)/attack-paths-report/summary.md"
       exit "$gate"
     displayName: Analyze attack paths

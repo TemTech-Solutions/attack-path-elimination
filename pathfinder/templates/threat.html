@@ -19,7 +19,9 @@
     --low: #4ade80;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.45 "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  body { margin: 0; font: 16px/1.55 "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  .about { margin-top: 14px; max-width: 78ch; padding: 14px 16px; border-radius: 12px; background: #121b2e; border: 1px solid var(--line); }
+  .about h2 { margin: 0 0 8px; font-size: 16px; }
   header, main { padding: 20px 24px; }
   header { border-bottom: 1px solid var(--line); }
   h1 { margin: 0 0 6px; font-size: 22px; }
@@ -79,6 +81,10 @@
   <h1 id="title">Threat model</h1>
   <p class="muted"><a href="report.html">Ranked paths</a> · <a href="graph.html">Graph</a></p>
   <p class="muted">Threats to eliminate. Choose a lens, then a group. The page shows only that group.</p>
+  <section class="about">
+    <h2>What this application does</h2>
+    <p class="muted" id="about-text">The summary is written from the files in this repository. The scan does not run the program.</p>
+  </section>
   <div class="lenses" id="lenses"></div>
   <div class="groups" id="groups"></div>
 </header>
@@ -89,6 +95,8 @@
 <script>
 const model = JSON.parse(document.getElementById("data").textContent);
 document.getElementById("title").textContent = model.repository + " threat model";
+const about = (model.application || {}).summary;
+if (about) document.getElementById("about-text").textContent = about;
 
 const LENSES = [
   { id: "severity", name: "Severity", order: ["Critical", "High", "Medium", "Low", "Unscored"] },
@@ -222,8 +230,11 @@ function card(threat, index) {
   if (openId === id) {
     el.id = "open-threat";
     if (threat.access) add(el, "p", threat.access);
+    if (threat.foothold) add(el, "p", "Foothold: " + threat.foothold);
+    if (threat.connected) add(el, "p", "Connected attack paths: " + threat.connected);
     add(el, "p", "Why this is first: " + (threat.why || ""));
     add(el, "p", threat.effect || "");
+    if (threat.database) add(el, "p", "Database: " + threat.database);
     if (threat.recommendation) add(el, "p", "Next step: " + threat.recommendation);
     el.appendChild(detail(threat));
   }

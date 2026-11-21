@@ -21,7 +21,7 @@
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font: 15px/1.45 "Segoe UI", system-ui, sans-serif;
+    font: 16px/1.55 "Segoe UI", system-ui, sans-serif;
     background: var(--bg);
     color: var(--text);
   }
@@ -175,6 +175,27 @@
   .file-group { margin-top: 4px; }
   .file-group h3 { margin: 8px 0 0; font-size: 14px; color: var(--accent); }
   .window { margin: 8px 0 0; }
+  .about, .install {
+    margin-top: 16px;
+    padding: 16px;
+    border-radius: 12px;
+    background: #121b2e;
+    border: 1px solid var(--line);
+  }
+  .about { max-width: 78ch; }
+  .about h2, .install h2 { margin: 0 0 8px; font-size: 18px; }
+  .about p, .install p { margin: 0; }
+  .install details { margin-top: 12px; }
+  .install summary { cursor: pointer; color: var(--accent); }
+  pre.workflow {
+    white-space: pre-wrap;
+    background: #0c1222;
+    border-radius: 8px;
+    padding: 12px;
+    margin: 8px 0 0;
+    font-size: 12px;
+    line-height: 1.45;
+  }
 </style>
 </head>
 <body>
@@ -182,6 +203,10 @@
   <h1 id="title">Attack paths</h1>
   <p class="muted"><a href="graph.html">Open the graph</a> · <a href="threat-model.html">Open the threat model</a> · <a href="#unused-code">Unused code</a></p>
   <div class="muted" id="subtitle"></div>
+  <section class="about" id="about">
+    <h2>What this application does</h2>
+    <p id="about-text">The summary is written from the files in this repository. The scan does not run the program.</p>
+  </section>
   <div class="stats" id="stats"></div>
   <div class="banner" id="banner"></div>
   <div id="objectives"></div>
@@ -203,7 +228,7 @@
       <h3>What to remove</h3>
       <ul id="recs"></ul>
       <h3>Findings on this path</h3>
-      <p class="muted">Each card is one detection. File, rule, and line stay visible. Open a card for how an attacker uses it, the effect, the next step, and the exception record for <code>pathfinder-exceptions.yml</code>.</p>
+      <p class="muted">Each card is one detection. The file, the rule, and the line stay visible. Open a card to read how an attacker can use it, how it can become a foothold, which other paths it connects to, the effect, the next step, and the exception record for <code>pathfinder-exceptions.yml</code>.</p>
       <div id="findings"></div>
     </section>
     <section class="panel" id="detail"><p class="muted">Select a component.</p></section>
@@ -214,6 +239,11 @@
     <div class="outcomes" id="unused-outcomes"></div>
     <div class="unused-list" id="unused-list"></div>
   </section>
+  <section class="panel install" id="install">
+    <h2>Add this scan to a repository</h2>
+    <p class="muted" id="install-lead">Copy one workflow into each repository you want to scan. The first job analyzes that repository. The next job validates the findings.</p>
+    <div id="install-blocks"></div>
+  </section>
 </main>
 <script id="data" type="application/json">__PAYLOAD__</script>
 <script>
@@ -221,6 +251,9 @@ const data = JSON.parse(document.getElementById("data").textContent);
 const nodes = Object.fromEntries(data.nodes.map((node) => [node.id, node]));
 const title = document.getElementById("title");
 title.textContent = data.repository + " attack paths";
+const about = data.application || {};
+const aboutText = document.getElementById("about-text");
+if (about.summary) aboutText.textContent = about.summary;
 document.getElementById("subtitle").textContent =
   "Baseline PER " + data.per.rate + " · eligible " + data.per.eligible + " · erased " + data.per.erased +
   (data.trend && data.trend.reduction !== null ? " · critical-path change " + Math.round(data.trend.reduction * 100) + "%" : " · baseline snapshot");
@@ -284,7 +317,7 @@ function renderList() {
     button.className = "path" + (index === selected ? " active" : "");
     const band = document.createElement("div");
     band.className = "band " + path.band;
-    band.textContent = path.band + " · " + path.score + " · " + path.category.replaceAll("_", " ");
+    band.textContent = path.band + " · " + path.score + " · " + path.category.replaceAll("_", " ") + (path.cwe_rank ? " · " + path.cwe + " rank " + path.cwe_rank : "");
     button.appendChild(band);
     const text = document.createElement("div");
     text.textContent = path.narrative;
@@ -307,7 +340,20 @@ function renderList() {
 function renderChain() {
   chainEl.textContent = "";
   const path = data.paths[selected];
-  banner.textContent = path ? path.narrative : "No composed chain.";
+  banner.textContent = "";
+  if (!path) {
+    banner.textContent = "No composed chain.";
+  } else {
+    const lead = document.createElement("div");
+    lead.textContent = path.narrative;
+    banner.appendChild(lead);
+    if (path.explanation) {
+      const extra = document.createElement("div");
+      extra.style.marginTop = "8px";
+      extra.textContent = path.explanation;
+      banner.appendChild(extra);
+    }
+  }
   if (!path) return;
   const hops = showAll ? data.nodes.filter((node) => node.attack_paths > 0).map((node) => ({
     label: node.name, node_id: node.id, file: node.file, line: node.line, rule: node.kind, evidence: "", recommendation: ""
@@ -462,6 +508,8 @@ function pathFindings(path) {
     recommendation: hop.recommendation,
     node_id: hop.node_id,
     access: hop.access,
+    foothold: hop.foothold,
+    connected: hop.connected,
     why: hop.why,
     effect: hop.effect,
     stride: hop.stride,
@@ -578,8 +626,11 @@ function findingDetail(finding) {
   const extra = document.createElement("div");
   extra.className = "detail";
   addText(extra, "p", "", finding.access || "An attacker can use this finding on its own. Access stays on this component and does not depend on another file.");
+  if (finding.foothold) addText(extra, "p", "", "Foothold: " + finding.foothold);
+  if (finding.connected) addText(extra, "p", "", "Connected attack paths: " + finding.connected);
   addText(extra, "p", "", "Why this is first: " + (finding.why || "This scan confirmed the file and line."));
   if (finding.effect) addText(extra, "p", "", finding.effect);
+  if (finding.database) addText(extra, "p", "", "Database: " + finding.database);
   if (finding.recommendation) addText(extra, "p", "", "Next step: " + finding.recommendation);
   if (finding.evidence) {
     const evidence = document.createElement("pre");
@@ -679,6 +730,8 @@ function answerCard(item) {
   [
     ["What was found", item.what],
     ["How it affects the repo", item.effect],
+    ["Architecture", item.architecture],
+    ["Database", item.database],
     ["How we know", item.why],
     ["Next step", item.next]
   ].forEach(([label, value]) => {
@@ -718,7 +771,7 @@ function renderStart() {
   removals.forEach((item) => files.set(item.file || "", (files.get(item.file || "") || 0) + 1));
   lead.textContent = urgent.length || removals.length
     ? "Do these first. Each row is one change: where it is, what to do, and a jump to the detail."
-    : "No critical or high path, and no unused code that met the removal bar.";
+    : "No critical or high path was found, and no unused code met the removal bar.";
   urgent.slice(0, 6).forEach((path) => {
     const hop = (path.hops || []).find((item) => item.file) || {};
     const place = hop.file ? hop.file + ":" + (hop.line || "") : "Attack path";
@@ -749,7 +802,7 @@ function renderUnused() {
   lead.textContent = summary.error
     ? "The unused-code pass did not finish. " + summary.error
     : (summary.depth || "Calls are followed inside each file. Private code is removed only when no live code can reach it.")
-      + " Public and exported symbols stay, because a caller outside this tree may use them.";
+      + " Public and exported symbols stay. A caller outside this repository may use them.";
   const outcomes = document.getElementById("unused-outcomes");
   outcomes.textContent = "";
   outcomes.appendChild(outcomeCard(
@@ -795,11 +848,42 @@ function renderUnused() {
   if (summary.omitted) addText(list, "p", "muted", summary.omitted + " unused symbol(s) were omitted by a recorded exception.");
 }
 
+function renderInstall() {
+  const root = document.getElementById("install-blocks");
+  const lead = document.getElementById("install-lead");
+  if (!root) return;
+  const guide = data.install || {};
+  if (lead && guide.note) lead.textContent = guide.note;
+  root.textContent = "";
+  [
+    ["GitHub Actions", guide.github, "Save this file as .github/workflows/attack-paths.yml in the repository you want to scan."],
+    ["GitLab CI", guide.gitlab, "Save this file as attack-paths.gitlab-ci.yml, then include it from .gitlab-ci.yml."],
+    ["Azure DevOps", guide.azure, "Save this file as azure-pipelines/attack-paths.yml, then create a pipeline from it."],
+    ["Local machine", guide.local, "Run these commands from a clone of this tool. Point them at the repository you want to scan."]
+  ].forEach(([title, code, help]) => {
+    if (!code) return;
+    const block = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = title;
+    block.appendChild(summary);
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = help;
+    block.appendChild(note);
+    const pre = document.createElement("pre");
+    pre.className = "workflow";
+    pre.textContent = code;
+    block.appendChild(pre);
+    root.appendChild(block);
+  });
+}
+
 function render() {
   renderStart();
   renderList();
   renderChain();
   renderUnused();
+  renderInstall();
 }
 document.getElementById("mode").addEventListener("click", () => {
   showAll = !showAll;

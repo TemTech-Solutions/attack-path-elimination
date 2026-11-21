@@ -82,7 +82,7 @@
 <main>
   <section id="issues"></section>
   <canvas id="view"></canvas>
-  <aside id="detail"><p class="muted">Select an issue. The graph lays out its clear path. The panel gives the diagnosis and the next step.</p></aside>
+  <aside id="detail"><p class="muted">Select an issue. The graph shows the path an attacker can take. Connected findings are drawn on the same walk. The panel gives the diagnosis and the next step.</p></aside>
 </main>
 <script id="data" type="application/json">__PAYLOAD__</script>
 <script>
@@ -140,7 +140,7 @@ refillSelect();
 pathSelect.addEventListener("change", () => {
   if (pathSelect.value === "") {
     activePath = null;
-    nodes.forEach((node) => { node.pinned = false; });
+    gridAll();
     draw();
     return;
   }
@@ -149,8 +149,15 @@ pathSelect.addEventListener("change", () => {
 document.getElementById("search").addEventListener("input", (event) => {
   query = event.target.value.trim().toLowerCase();
   const hit = nodes.find((node) => node.name.toLowerCase().includes(query));
-  if (hit && query) select(hit);
-  else draw();
+  if (hit && query) {
+    const extra = [];
+    edges.forEach((edge) => {
+      if (edge.source === hit.id && extra.length < 12) extra.push(edge.target);
+      if (edge.target === hit.id && extra.length < 12) extra.push(edge.source);
+    });
+    place([hit.id], extra);
+    select(hit);
+  } else draw();
 });
 
 const issueRoot = document.getElementById("issues");
@@ -193,58 +200,66 @@ function resize() {
 window.addEventListener("resize", () => { resize(); draw(); });
 resize();
 
-function tick() {
-  const width = canvas.width || 800;
-  const height = canvas.height || 600;
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      const a = nodes[i];
-      const b = nodes[j];
-      let dx = a.x - b.x;
-      let dy = a.y - b.y;
-      let dist = Math.hypot(dx, dy) || 1;
-      const force = 980 / (dist * dist);
-      dx /= dist; dy /= dist;
-      if (!a.pinned) { a.vx += dx * force; a.vy += dy * force; }
-      if (!b.pinned) { b.vx -= dx * force; b.vy -= dy * force; }
-    }
+function layoutPath(path) {
+  const trunk = [];
+  (path.node_ids || []).forEach((id) => { if (byId[id] && !trunk.includes(id)) trunk.push(id); });
+  (path.hops || []).forEach((hop) => { if (hop.node_id && byId[hop.node_id] && !trunk.includes(hop.node_id)) trunk.push(hop.node_id); });
+  const extra = [];
+  function addExtra(id) {
+    if (byId[id] && !trunk.includes(id) && !extra.includes(id) && extra.length < 18) extra.push(id);
   }
   edges.forEach((edge) => {
-    const a = byId[edge.source];
-    const b = byId[edge.target];
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const dist = Math.hypot(dx, dy) || 1;
-    const force = (dist - 110) * 0.01;
-    if (!a.pinned) { a.vx += dx / dist * force; a.vy += dy / dist * force; }
-    if (!b.pinned) { b.vx -= dx / dist * force; b.vy -= dy / dist * force; }
+    if (!trunk.includes(edge.source) && !trunk.includes(edge.target)) return;
+    addExtra(edge.source);
+    addExtra(edge.target);
   });
-  nodes.forEach((node) => {
-    if (node.pinned) return;
-    node.vx += (width / 2 - node.x) * 0.004;
-    node.vy += (height / 2 - node.y) * 0.004;
-    node.vx *= 0.72; node.vy *= 0.72;
-    node.x += node.vx; node.y += node.vy;
-    node.x = Math.max(36, Math.min(width - 36, node.x));
-    node.y = Math.max(36, Math.min(height - 36, node.y));
+  (data.paths || []).forEach((other) => {
+    if (!other || other === path) return;
+    const shares = (other.node_ids || []).some((id) => trunk.includes(id));
+    if (!shares) return;
+    (other.node_ids || []).forEach(addExtra);
+  });
+  place(trunk, extra);
+}
+
+function place(trunk, extra) {
+  const width = canvas.width || 800;
+  const height = canvas.height || 600;
+  if (!trunk.length) {
+    gridAll();
+    return;
+  }
+  const visible = new Set(trunk.concat(extra));
+  nodes.forEach((node) => { node.shown = visible.has(node.id); node.pinned = trunk.includes(node.id); });
+  const gap = Math.max(150, (width - 160) / Math.max(trunk.length - 1, 1));
+  trunk.forEach((id, index) => {
+    const node = byId[id];
+    node.x = trunk.length === 1 ? width / 2 : 80 + index * gap;
+    node.y = height * 0.36;
+  });
+  extra.forEach((id, index) => {
+    const node = byId[id];
+    let anchor = trunk[0];
+    edges.some((edge) => {
+      if (edge.source === id && trunk.includes(edge.target)) { anchor = edge.target; return true; }
+      if (edge.target === id && trunk.includes(edge.source)) { anchor = edge.source; return true; }
+      return false;
+    });
+    const host = byId[anchor];
+    node.x = host.x + ((index % 3) - 1) * 28;
+    node.y = host.y + 120 + Math.floor(index / 3) * 64;
   });
 }
 
-function layoutPath(path) {
-  const ids = [];
-  (path.node_ids || []).forEach((id) => { if (byId[id] && !ids.includes(id)) ids.push(id); });
-  (path.hops || []).forEach((hop) => { if (hop.node_id && byId[hop.node_id] && !ids.includes(hop.node_id)) ids.push(hop.node_id); });
-  nodes.forEach((node) => { node.pinned = ids.includes(node.id); });
-  if (!ids.length) return;
-  const width = canvas.width || 800;
-  const y = (canvas.height || 600) * 0.46;
-  ids.forEach((id, index) => {
-    const node = byId[id];
-    const t = ids.length === 1 ? 0.5 : index / (ids.length - 1);
-    node.x = 90 + (width - 180) * t;
-    node.y = y;
-    node.vx = 0;
-    node.vy = 0;
+function gridAll() {
+  const interesting = nodes.filter((node) => (node.findings || []).length || node.risk >= 40 || node.degree > 0);
+  const shown = (interesting.length ? interesting : nodes).slice(0, 80);
+  const ids = new Set(shown.map((node) => node.id));
+  nodes.forEach((node) => { node.shown = ids.has(node.id); node.pinned = false; });
+  const cols = Math.max(1, Math.ceil(Math.sqrt(shown.length || 1)));
+  shown.forEach((node, index) => {
+    node.x = 80 + (index % cols) * 130;
+    node.y = 70 + Math.floor(index / cols) * 76;
   });
 }
 
@@ -273,11 +288,13 @@ function draw() {
   edges.forEach((edge) => {
     const a = byId[edge.source];
     const b = byId[edge.target];
+    if (!a || !b || a.shown === false || b.shown === false) return;
     const hot = activePath && (activePath.edges || []).some((item) => item.source === edge.source && item.target === edge.target && item.kind === edge.relation);
-    drawArrow(a, b, hot, edge.confidence === "INFERRED", activePath && !hot);
+    drawArrow(a, b, hot, edge.confidence === "INFERRED", false);
   });
   nodes.forEach((node) => {
-    const dim = activePath && focus.size && !focus.has(node.id);
+    if (node.shown === false) return;
+    const dim = false;
     const match = query && node.name.toLowerCase().includes(query);
     const radius = node.id === (selected && selected.id) ? 11 : (node.risk >= 70 ? 8 : 6);
     ctx.beginPath();
@@ -302,7 +319,7 @@ function draw() {
   ctx.globalAlpha = 1;
   ctx.fillStyle = "#93a0b8";
   ctx.font = "12px Segoe UI, sans-serif";
-  ctx.fillText("Scroll to zoom · drag to pan · select an issue to lay out its clear path", 16, canvas.height - 16);
+  ctx.fillText("The top row is the path an attacker can take. Connected findings sit below it.", 16, canvas.height - 16);
 }
 
 function pathOrder(id) {
@@ -338,15 +355,6 @@ function drawArrow(a, b, hot, inferred, dim) {
   ctx.fillStyle = ctx.strokeStyle;
   ctx.fill();
 }
-
-let frames = 0;
-function animate() {
-  if (frames < 160) tick();
-  frames += 1;
-  draw();
-  if (frames < 160) requestAnimationFrame(animate);
-}
-animate();
 
 canvas.addEventListener("wheel", (event) => {
   event.preventDefault();
@@ -465,6 +473,17 @@ function pathCard(path, highlight, seen) {
     add(card, "h3", "Diagnosis");
     add(card, "p", diagnosis);
   }
+  if (path.explanation && !already(seen, path.explanation)) {
+    add(card, "p", path.explanation);
+    remember(seen, path.explanation);
+  }
+  const links = (path.connected_paths || []).filter((link) => link && link.category);
+  if (links.length) {
+    add(card, "h3", "Connected attack paths");
+    links.forEach((link) => {
+      add(card, "p", link.band + " " + link.score + " · " + String(link.category).replace(/_/g, " "));
+    });
+  }
   remember(seen, diagnosis);
   const places = new Set();
   const hopRows = [];
@@ -542,10 +561,13 @@ function findingBlock(finding, seen) {
   body.hidden = true;
   const access = finding.access || "An attacker can use this finding on its own. Access stays on this component and does not depend on another file.";
   if (!already(seen, access)) add(body, "p", access);
+  if (finding.foothold && !already(seen, finding.foothold)) add(body, "p", "Foothold: " + finding.foothold);
+  if (finding.connected && !already(seen, finding.connected)) add(body, "p", "Connected attack paths: " + finding.connected);
   let why = finding.why || "This scan confirmed the file and line.";
   if (scoreLead && why.startsWith(scoreLead)) why = why.slice(scoreLead.length).replace(/^[.\s]+/, "");
   if (why && !already(seen, why)) add(body, "p", "Why this is first: " + why);
   if (finding.effect && !already(seen, finding.effect)) add(body, "p", finding.effect);
+  if (finding.database && !already(seen, finding.database)) add(body, "p", "Database: " + finding.database);
   if (finding.recommendation && !already(seen, finding.recommendation)) add(body, "p", "Next step: " + finding.recommendation);
   if (finding.dread_text) add(body, "p", finding.dread_text);
   if ((finding.stride || []).length) add(body, "p", "STRIDE · " + finding.stride.join(", "));
@@ -679,6 +701,7 @@ function add(parent, tag, text) {
 }
 drawIssues();
 if (data.paths.length) showIssue(data.paths[0]);
+else { gridAll(); draw(); }
 </script>
 </body>
 </html>

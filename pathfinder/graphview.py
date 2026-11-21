@@ -43,6 +43,8 @@ def build_graph(result: dict) -> dict:
                 "file": item.get("file"),
                 "line": item.get("line"),
                 "access": item.get("access") or "",
+                "foothold": item.get("foothold") or "",
+                "connected": item.get("connected") or "",
                 "why": item.get("why") or "",
                 "effect": item.get("effect") or "",
                 "stride": list(item.get("stride") or []),
@@ -187,8 +189,33 @@ def elimination_paths(result: dict) -> list[dict]:
         item["next_steps"] = _next_steps(item)
         item["kind"] = "path"
     packed.extend(_finding_issues(result, packed))
+    _link_paths(packed)
     packed.sort(key=lambda item: (-item["score"], item["category"], item["narrative"]))
     return packed
+
+
+def _link_paths(packed: list[dict]) -> None:
+    """Record which other findings share a step with this walk."""
+    for item in packed:
+        ids = {node_id for node_id in (item.get("node_ids") or []) if node_id}
+        links = []
+        for other in packed:
+            if other is item:
+                continue
+            shared = ids.intersection(other.get("node_ids") or [])
+            if not shared:
+                continue
+            links.append(
+                {
+                    "id": other.get("id"),
+                    "category": other.get("category") or "",
+                    "band": other.get("band") or "",
+                    "score": other.get("score") or 0,
+                }
+            )
+            if len(links) >= 6:
+                break
+        item["connected_paths"] = links
 
 
 def _pack_composed(path: dict) -> dict:
@@ -212,6 +239,7 @@ def _pack_composed(path: dict) -> dict:
         "score": path.get("score") or 0,
         "confidence": path.get("confidence") or "INFERRED",
         "narrative": path.get("narrative") or "",
+        "explanation": path.get("explanation") or "",
         "node_ids": list(path.get("node_ids") or []),
         "hops": hops,
         "remove": list(path.get("recommendations") or []),
@@ -263,7 +291,8 @@ def _diagnosis(item: dict) -> str:
         return (
             f"{narrative} The clear path starts at {start.get('label') or 'the entry'}"
             f" ({_place(start)}) and ends at {end.get('label') or 'the last hop'} ({_place(end)}). "
-            f"Confidence is {item.get('confidence') or 'INFERRED'}, the weakest hop on this walk."
+            "This is the walk an attacker can take. "
+            f"Confidence is {item.get('confidence') or 'INFERRED'}, which is the weakest hop on the walk."
         )
     if hops:
         hop = hops[0]

@@ -187,15 +187,17 @@ def _removal(symbol: dict) -> dict:
     else:
         label = "method" if kind == "method" else "function"
         clustered = "unused private code" in why
+        snippet = " ".join(str(evidence or "").split())
+        quoted = f" The line is `{snippet}`." if snippet else ""
         what = (
-            f"Private {language} {label} {name} at {file}:{line} is only reached from other unused private code."
+            f"Private {language} {label} {name} at {file}:{line} is only reached from other unused private code.{quoted}"
             if clustered
-            else f"Private {language} {label} {name} at {file}:{line} is not reached by any code that still runs."
+            else f"Private {language} {label} {name} at {file}:{line} is not reached by any code that still runs.{quoted}"
         )
         effect = (
-            f"No live code calls {name}. Removing it with the unused private code that calls it deletes code that never runs."
+            f"No live code calls {name}. Removing it, together with the unused private code that calls it, deletes code that never runs. This is not an attack path, and it cannot be a foothold."
             if clustered
-            else f"Nothing that still runs calls {name}. It is not part of an attack path. Removing it deletes code that never runs."
+            else f"Nothing that still runs calls {name}. This is not an attack path, and it cannot be a foothold, because no running code can reach it. Removing it deletes code that never runs."
         )
         step = f"Delete {label} {name} at {file}:{line}."
     item = {
@@ -215,6 +217,12 @@ def _removal(symbol: dict) -> dict:
         "window": symbol.get("window") or evidence,
         "depth": symbol.get("depth") or "call graph",
         "confidence": "near 100%",
+        "priority": 1,
+        "database": _database("CWE-561"),
+        "architecture": (
+            f"Removing {name} does not change the architecture of the code that still runs. "
+            "Nothing live calls it. CWE-1164 describes unreachable code as having no impact on intended functionality when it is removed."
+        ),
     }
     item["fingerprint"] = fingerprint("APP07", file, evidence)
     return item
@@ -236,6 +244,135 @@ def _held(symbol: dict) -> dict:
         "what": f"{symbol['language']} {kind} {name} is defined at {file}:{line} and nothing in this repository calls it.",
         "effect": f"{name} is public or exported. A caller outside this repository, or a runtime entry this scan cannot see, may use it.",
         "next": f"Leave {name} in place. Delete it only if you know this repository is the only caller.",
+        "architecture": (
+            f"Removing {name} can change the current architecture. "
+            "It is public or exported, so a caller outside this repository may depend on it. This scan leaves it in place."
+        ),
+    }
+
+
+def _database(key: str) -> str:
+    from pathfinder.catalog import RECORDS, present
+
+    return present(RECORDS.get(key) or {})
+
+
+def add_unused_components(unused: dict, nodes: list[dict], observations: list[dict], root: Path) -> dict:
+    """Add graph components that nothing calls, on the same list as unused code."""
+    flagged = {item.get("node_id") for item in observations or [] if item.get("node_id")}
+    removals = unused.setdefault("removals", [])
+    held = unused.setdefault("held", [])
+    known = {(item.get("file"), item.get("name")) for item in list(removals) + list(held)}
+    added = 0
+    for node in nodes or []:
+        kind = node.get("kind")
+        if kind not in {"function", "workflow", "workload"}:
+            continue
+        file = str(node.get("file") or "")
+        if kind == "function" and Path(file).suffix.lower() in {".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java", ".go", ".cs", ".php"}:
+            continue
+        if node.get("incoming") or node.get("attack_paths") or node.get("id") in flagged:
+            continue
+        name = str(node.get("name") or "")
+        if not name or (file, name) in known or _entry_name(name):
+            continue
+        known.add((file, name))
+        if kind == "function" and not _private(name):
+            held.append(_held_component(node))
+            continue
+        removals.append(_unused_component(node))
+        added += 1
+    removals.sort(key=lambda item: (item.get("priority", 1), item.get("file") or "", item.get("line") or 0, item.get("name") or ""))
+    _suppress(Path(root), removals)
+    summary = unused.setdefault("summary", {})
+    summary["removals"] = len(removals)
+    summary["components"] = added
+    summary["held"] = max(int(summary.get("held") or 0), len(held))
+    depth = summary.get("depth") or ""
+    note = " Unused components with no caller in the analyzed graph are on this same page."
+    if note.strip() not in depth:
+        summary["depth"] = depth + note
+    if len(held) > 40:
+        unused["held_omitted"] = int(unused.get("held_omitted") or 0) + (len(held) - 40)
+        unused["held"] = held[:40]
+    else:
+        unused["held"] = held
+    return unused
+
+
+def _unused_component(node: dict) -> dict:
+    name = str(node.get("name") or "component")
+    kind = str(node.get("kind") or "component")
+    file = str(node.get("file") or "")
+    line = node.get("line") or 1
+    place = f"{file}:{line}" if file else "this repository"
+    surface = kind in {"workflow", "workload"}
+    evidence = f"{kind} {name}"
+    if surface:
+        what = f"Unused {kind} {name} at {place} is in the analyzed graph, and nothing in that graph invokes it."
+        effect = f"No trigger or service routes to {name}. It is not on an attack path."
+        architecture = (
+            f"Removing {name} does not change the architecture of the paths that still have a caller. "
+            "Nothing in this graph depends on it."
+        )
+        database = _database("API9")
+        priority = 0
+    else:
+        what = f"Unused {kind} {name} at {place} has no caller in the analyzed graph."
+        effect = f"No component calls {name}. This is not an attack path, and it cannot be a foothold."
+        architecture = (
+            f"Removing {name} does not change the architecture of the code that still runs. "
+            "CWE-1164 describes unreachable code as having no impact on intended functionality when it is removed."
+        )
+        database = _database("CWE-561")
+        priority = 1
+    item = {
+        "outcome": "remove",
+        "rule": "APP07",
+        "name": name,
+        "kind": kind,
+        "language": node.get("language") or "",
+        "file": file,
+        "line": line,
+        "title": f"Unused {kind} {name}",
+        "evidence": evidence,
+        "what": what,
+        "effect": effect,
+        "next": f"Delete {kind} {name} at {place}.",
+        "why": f"The analyzed graph has no incoming call to {name}.",
+        "window": evidence,
+        "depth": "component graph",
+        "confidence": "graph",
+        "priority": priority,
+        "database": database,
+        "architecture": architecture,
+    }
+    item["fingerprint"] = fingerprint("APP07", file, evidence)
+    return item
+
+
+def _held_component(node: dict) -> dict:
+    name = str(node.get("name") or "component")
+    kind = str(node.get("kind") or "function")
+    file = str(node.get("file") or "")
+    line = node.get("line") or 1
+    return {
+        "outcome": "keep",
+        "name": name,
+        "kind": kind,
+        "language": node.get("language") or "",
+        "file": file,
+        "line": line,
+        "evidence": f"{kind} {name}",
+        "what": f"{kind} {name} at {file}:{line} has no caller in this graph, and it is public or exported.",
+        "effect": f"A caller outside this repository may use {name}.",
+        "next": f"Leave {name} in place.",
+        "why": f"Nothing in this repository calls {name}, but the name is not private.",
+        "architecture": (
+            f"Removing {name} can change the current architecture. "
+            "A caller outside this repository may depend on this public component."
+        ),
+        "confidence": "graph",
     }
 
 
