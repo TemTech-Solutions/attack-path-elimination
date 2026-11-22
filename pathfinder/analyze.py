@@ -39,7 +39,6 @@ from pathfinder.platform import (
 )
 from pathfinder.adapt import adapt_repository
 from pathfinder.exceptions import apply_exceptions, path_is_excepted
-from pathfinder.overview import describe_application
 from pathfinder.scoring import score_path
 from pathfinder.universal import analyze_unclaimed, deepen
 from pathfinder.unused import find_unused
@@ -70,11 +69,7 @@ def analyze(target: Path) -> dict:
     model = RepoModel(root)
     python_facts = []
     openapi_files = []
-    file_count = 0
     known: set[str] = set()
-    _say(f"Phase 1 — Deep analysis of {root.name}")
-    _say("The repository is analyzed first. Each file and component is listed below.")
-    _say("Findings are validated after this analysis, not before it.")
     for path in _files(root):
         rel = model.rel(path)
         try:
@@ -84,7 +79,6 @@ def analyze(target: Path) -> dict:
             _say(f"Analyzing {rel}")
             _say(f"  could not read this file: {exc}")
             continue
-        file_count += 1
         known = set(model.nodes)
         _say(f"Analyzing {rel}")
         suffix = path.suffix.lower()
@@ -141,13 +135,11 @@ def analyze(target: Path) -> dict:
             model.error(rel, f"{type(exc).__name__}: {exc}")
         _announce(model, known)
     known = set(model.nodes)
-    _say("Linking calls across files")
     try:
         resolve_python(model, python_facts)
     except SyntaxError as exc:
         model.error("<python>", str(exc))
     known = _announce(model, known)
-    _say("Reading API definitions, runtime links, and data stores")
     for rel, text in openapi_files:
         _say(f"Analyzing {rel}")
         analyze_openapi(model, rel, text)
@@ -155,26 +147,16 @@ def analyze(target: Path) -> dict:
     _materialize_polyglot_sql(model)
     deepen(model, root)
     known = _announce(model, known)
-    _say("Learning names this repository has already confirmed")
     adapt_repository(model)
     _announce(model, known)
-    _say(f"Phase 1 complete. Files read: {file_count}. Components found: {len(model.nodes)}.")
-    application = describe_application(model)
-    _say("Phase 2 — Validate findings")
-    _say("Validation starts now, after the repository contents have been analyzed.")
-    suppressed = apply_exceptions(model)
-    _say(f"Recorded exceptions matched {len(suppressed)} finding(s).")
-    _say("Composing attack paths from the validated findings")
+    apply_exceptions(model)
     paths = build_paths(model)
-    _say(f"Attack paths composed: {len(paths)}.")
     suppressed = list(getattr(model, "suppressed", []) or [])
     paths = [path for path in paths if not path_is_excepted(path, suppressed)]
     packaged = _package(model, paths)
-    packaged["application"] = application
     from pathfinder.install import integration_guide
 
     packaged["install"] = integration_guide()
-    _say("Checking unused code")
     try:
         packaged["unused"] = find_unused(root)
     except Exception as exc:
@@ -196,13 +178,7 @@ def analyze(target: Path) -> dict:
     from pathfinder.query import attach_search
     from pathfinder.threatmodel import attach_reviews
 
-    summary = validate_published(packaged)
-    _say(
-        f"Checked {summary.get('checked', 0)} finding record(s). "
-        f"Kept {summary.get('kept', 0)}. "
-        f"Left out {summary.get('omitted', 0)} that this scan could not confirm."
-    )
-    _say("Analysis and validation are complete.")
+    validate_published(packaged)
     attach_reviews(packaged)
     return attach_search(packaged)
 

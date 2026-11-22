@@ -174,7 +174,6 @@ def test_html_and_comment_carry_the_chain(payment_repo: Path):
     assert "pathfinder: false-positive:" in html
     comment = pr_comment(result)
     assert "Auth bypass" in comment
-    assert "Static review only" in comment
     from pathfinder.report import runtime_summary
     summary = runtime_summary(result)
     assert "What was found" in summary

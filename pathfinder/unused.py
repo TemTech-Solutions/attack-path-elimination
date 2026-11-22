@@ -288,10 +288,6 @@ def add_unused_components(unused: dict, nodes: list[dict], observations: list[di
     summary["removals"] = len(removals)
     summary["components"] = added
     summary["held"] = max(int(summary.get("held") or 0), len(held))
-    depth = summary.get("depth") or ""
-    note = " Unused components with no caller in the analyzed graph are on this same page."
-    if note.strip() not in depth:
-        summary["depth"] = depth + note
     if len(held) > 40:
         unused["held_omitted"] = int(unused.get("held_omitted") or 0) + (len(held) - 40)
         unused["held"] = held[:40]

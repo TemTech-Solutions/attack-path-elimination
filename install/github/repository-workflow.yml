@@ -1,0 +1,21 @@
+# Installed from https://github.com/vekis11/attack-path-elimination_POC
+name: Attack paths
+
+on:
+  pull_request:
+
+  push:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  attack-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+
+      - name: Attack path elimination
+        uses: TemTech-Solutions/attack-path-elimination@321ae496d1937548308f8c72c9555489f4a46506

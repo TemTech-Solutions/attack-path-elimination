@@ -82,7 +82,7 @@
 <main>
   <section id="issues"></section>
   <canvas id="view"></canvas>
-  <aside id="detail"><p class="muted">Select an issue. The graph shows the path an attacker can take. Connected findings are drawn on the same walk. The panel gives the diagnosis and the next step.</p></aside>
+  <aside id="detail"></aside>
 </main>
 <script id="data" type="application/json">__PAYLOAD__</script>
 <script>
@@ -180,7 +180,6 @@ function drawIssues() {
     return path.band === bandFilter;
   });
   add(issueRoot, "h2", "Issues (" + visible.length + ")");
-  add(issueRoot, "p", "Every composed path, plus the smaller findings the stories do not already name.").className = "muted";
   visible.forEach((path) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -316,10 +315,6 @@ function draw() {
     }
   });
   ctx.restore();
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "#93a0b8";
-  ctx.font = "12px Segoe UI, sans-serif";
-  ctx.fillText("The top row is the path an attacker can take. Connected findings sit below it.", 16, canvas.height - 16);
 }
 
 function pathOrder(id) {

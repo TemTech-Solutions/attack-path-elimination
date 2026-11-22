@@ -24,11 +24,7 @@ def runtime_summary(result: dict) -> str:
     findings = scorecard.get("findings", len(result.get("findings") or []))
     removals = int(((result.get("unused") or {}).get("summary") or {}).get("removals") or 0)
     skipped = _exceptions_skipped(result)
-    lines = ["## Attack path summary", ""]
-    about = ((result.get("application") or {}).get("summary") or "").strip()
-    if about:
-        lines.extend(["What this application does", "", about, ""])
-    lines.extend(["What was found", ""])
+    lines = ["## Attack path summary", "", "What was found", ""]
     lines.append(
         f"{len(critical)} critical path(s), {len(high)} high path(s), and {medium} medium path(s). "
         f"{findings} finding(s) stayed in the report. "
@@ -40,9 +36,8 @@ def runtime_summary(result: dict) -> str:
         lines.append(lead[0].get("narrative") or "")
     lines.append("")
     lines.append(f"Exceptions skipped: {skipped}")
-    lines.append("These findings were left out because a recorded exception matched them.")
     lines.append("")
-    lines.append("The file, the line, and the exception record are in report.html, graph.html, and threat-model.html.")
+    lines.append("report.html, graph.html, threat-model.html")
     lines.append("")
     return "\n".join(lines)
 
@@ -59,7 +54,6 @@ def _exceptions_skipped(result: dict) -> int:
 
 def pr_comment(result: dict) -> str:
     """Work queue for a pipeline log. Critical, high, and a short set of medium walks."""
-    scorecard = result.get("scorecard") or {}
     paths = list(result.get("paths") or [])
     findings = list(result.get("findings") or [])
     critical = [path for path in paths if path.get("band") == "Critical"]
@@ -83,16 +77,6 @@ def pr_comment(result: dict) -> str:
             medium_findings.append(finding)
     extra = extra[:12] + medium_findings[:5]
     lines = ["### Attack-path review", ""]
-    about = ((result.get("application") or {}).get("summary") or "").strip()
-    if about:
-        lines.append(about)
-        lines.append("")
-    lines.append(
-        f"Reviewed {scorecard.get('components', 0)} components and {scorecard.get('findings', len(findings))} findings. "
-        "The work queue is the critical paths, the high paths, and the medium walks that connect an entry to an asset. "
-        "The HTML report keeps the full review."
-    )
-    lines.append("")
     lines.append(f"- Critical paths: {len(critical)}")
     lines.append(f"- High paths: {len(high)}")
     lines.append(f"- Medium paths shown: {len(medium)}")
@@ -137,15 +121,6 @@ def pr_comment(result: dict) -> str:
             lines.append(f"- {item['name']}: {item['found']} path(s), {top['band']} — {' → '.join(top['labels'][:6])}")
         lines.append("")
     lines.extend(_unused_lines(result))
-    lines.append("Open `report.html`, `graph.html`, and `threat-model.html` in the attack-path-report artifact for the full review.")
-    lines.append("")
-    validation = result.get("validation") or {}
-    if validation:
-        lines.append(
-            f"Runtime validation kept {validation.get('kept', 0)} confirmed finding record(s) and left out {validation.get('omitted', 0)} that this scan could not confirm."
-        )
-        lines.append("")
-    lines.append("Static review only. The change to make is deletion or constraint of the path, not a new alert.")
     suppressed = result.get("suppressed") or []
     if suppressed:
         lines.append("")
@@ -167,19 +142,10 @@ def _unused_lines(result: dict) -> list[str]:
     removals = list(unused.get("removals") or [])
     held = int(summary.get("held") or 0)
     lines = ["### Unused code", ""]
-    lines.append(
-        f"Followed calls inside {summary.get('files', 0)} files "
-        f"({summary.get('symbols', 0)} symbols). "
-        f"{len(removals)} private item(s) are unreachable from any public function, import, decorator, or module-level call. "
-        f"{held} public symbol(s) are never called here and were left in place."
-    )
+    lines.append(f"{len(removals)} unused. {held} left in place.")
     lines.append("")
     if not removals:
-        lines.append("No private symbol is unreachable from live code. Nothing is recommended for removal.")
-        lines.append("")
         return lines
-    lines.append("Each item below is unused inside this repository, including private helpers that only call each other. Deleting it does not change the code that still runs.")
-    lines.append("")
     for item in removals[:12]:
         place = f"`{item.get('file')}:{item.get('line')}`"
         lines.append(f"- **{item.get('name')}** {place}")

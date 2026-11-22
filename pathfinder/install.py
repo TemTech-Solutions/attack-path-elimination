@@ -28,14 +28,129 @@ class InstallError(Exception):
     pass
 
 
+def _workflow_file(relative: str, fallback: str) -> str:
+    path = Path(__file__).resolve().parents[1] / relative
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    return fallback
+
+
+def repository_workflow() -> str:
+    """GitHub workflow a repository commits on the branch it wants scanned."""
+    return _workflow_file("install/github/repository-workflow.yml", _REPOSITORY_WORKFLOW)
+
+
+def repository_gitlab() -> str:
+    """GitLab job a repository commits on the branch it wants scanned."""
+    return _workflow_file("install/gitlab/repository-workflow.gitlab-ci.yml", _REPOSITORY_GITLAB)
+
+
+def repository_azure() -> str:
+    """Azure pipeline a repository commits on the branch it wants scanned."""
+    return _workflow_file("install/azure/repository-workflow.yml", _REPOSITORY_AZURE)
+
+
+_REPOSITORY_WORKFLOW = """# Installed from https://github.com/vekis11/attack-path-elimination_POC
+name: Attack paths
+
+on:
+  pull_request:
+
+  push:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  attack-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+
+      - name: Attack path elimination
+        uses: TemTech-Solutions/attack-path-elimination@321ae496d1937548308f8c72c9555489f4a46506
+"""
+
+_REPOSITORY_GITLAB = """# Installed from https://github.com/vekis11/attack-path-elimination_POC
+# Save this file as attack-paths.gitlab-ci.yml on the target branch.
+# Add this to .gitlab-ci.yml on that same branch:
+# include:
+#   - local: attack-paths.gitlab-ci.yml
+attack-paths:
+  image: python:3.12
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+  script:
+    - git init "$CI_PROJECT_DIR/.pathfinder-tool"
+    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
+    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" fetch --depth 1 origin 321ae496d1937548308f8c72c9555489f4a46506
+    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" checkout --detach FETCH_HEAD
+    - python -m pip install --upgrade pip
+    - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
+    - PYTHONUNBUFFERED=1 PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
+  artifacts:
+    when: always
+    paths:
+      - attack-paths-report/
+"""
+
+_REPOSITORY_AZURE = """# Installed from https://github.com/vekis11/attack-path-elimination_POC
+# Save this file as azure-pipelines/attack-paths.yml on the target branch.
+# In Azure DevOps: Pipelines, New pipeline, Existing Azure Pipelines YAML file,
+# then choose azure-pipelines/attack-paths.yml.
+trigger:
+  branches:
+    include:
+      - "*"
+
+pr:
+  branches:
+    include:
+      - "*"
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+    fetchDepth: 1
+
+  - task: UsePythonVersion@0
+    displayName: Use Python 3.12
+    inputs:
+      versionSpec: "3.12"
+
+  - bash: |
+      set -euo pipefail
+      TOOL="$(Agent.TempDirectory)/pathfinder-tool"
+      git init "$TOOL"
+      git -C "$TOOL" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
+      git -C "$TOOL" fetch --depth 1 origin 321ae496d1937548308f8c72c9555489f4a46506
+      git -C "$TOOL" checkout --detach FETCH_HEAD
+      python -m pip install --upgrade pip
+      python -m pip install -r "$TOOL/requirements.txt"
+      PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
+    displayName: Attack path elimination
+
+  - task: PublishPipelineArtifact@1
+    condition: succeededOrFailed()
+    displayName: Publish attack path report
+    inputs:
+      targetPath: $(Build.ArtifactStagingDirectory)/attack-paths-report
+      artifact: attack-path-report
+"""
+
+
 def integration_guide() -> dict:
     """Workflow text a report can show so a team can scan another repository."""
     return {
-        "note": (
-            "Copy one workflow into each repository you want to scan. "
-            "The application stays in that repository. This tool is downloaded when the job runs. "
-            "The first job analyzes the repository. The next job validates the findings and applies recorded exceptions."
-        ),
+        "note": "",
+        "repository": repository_workflow(),
+        "repository_gitlab": repository_gitlab(),
+        "repository_azure": repository_azure(),
         "github": _github_workflow(PUBLIC_SLUG, PUBLIC_REF),
         "gitlab": _gitlab_ci(PUBLIC_GIT, PUBLIC_REF),
         "azure": _azure_pipeline(PUBLIC_GIT, PUBLIC_REF),
@@ -128,7 +243,7 @@ jobs:
       - name: Checkout this repository
         uses: actions/checkout@{CHECKOUT_REF} # v4.4.0
 
-      - name: Validate findings after analysis
+      - name: Exception scan
         uses: {action}
         with:
           exception_scan: "true"
@@ -164,9 +279,7 @@ attack-paths:
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" checkout --detach FETCH_HEAD
     - python -m pip install --upgrade pip
     - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
-    - echo "Phase 1: deep analysis of this repository. Every component is printed as it is read."
     - PYTHONUNBUFFERED=1 PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
-    - echo "Phase 1 finished. Phase 2 validates findings after that analysis and applies recorded exceptions."
     - |
       gate=0
       PYTHONUNBUFFERED=1 PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --exception-scan --max-critical 0 || gate=$?
@@ -223,9 +336,7 @@ steps:
       git -C "$TOOL" checkout --detach FETCH_HEAD
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
-      echo "Phase 1: deep analysis of this repository. Every component is printed as it is read."
       PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
-      echo "Phase 1 finished. Phase 2 validates findings after that analysis and applies recorded exceptions."
       gate=0
       PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan --max-critical 0 || gate=$?
       cat "$(Build.ArtifactStagingDirectory)/attack-paths-report/summary.md"

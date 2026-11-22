@@ -14,9 +14,7 @@ attack-paths:
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" checkout --detach FETCH_HEAD
     - python -m pip install --upgrade pip
     - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
-    - echo "Phase 1: deep analysis of this repository. Every component is printed as it is read."
     - PYTHONUNBUFFERED=1 PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
-    - echo "Phase 1 finished. Phase 2 validates findings after that analysis and applies recorded exceptions."
     - |
       gate=0
       PYTHONUNBUFFERED=1 PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --exception-scan --max-critical 0 || gate=$?

@@ -1,0 +1,44 @@
+# Installed from https://github.com/vekis11/attack-path-elimination_POC
+# Save this file as azure-pipelines/attack-paths.yml on the target branch.
+# In Azure DevOps: Pipelines, New pipeline, Existing Azure Pipelines YAML file,
+# then choose azure-pipelines/attack-paths.yml.
+trigger:
+  branches:
+    include:
+      - "*"
+
+pr:
+  branches:
+    include:
+      - "*"
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+    fetchDepth: 1
+
+  - task: UsePythonVersion@0
+    displayName: Use Python 3.12
+    inputs:
+      versionSpec: "3.12"
+
+  - bash: |
+      set -euo pipefail
+      TOOL="$(Agent.TempDirectory)/pathfinder-tool"
+      git init "$TOOL"
+      git -C "$TOOL" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
+      git -C "$TOOL" fetch --depth 1 origin 321ae496d1937548308f8c72c9555489f4a46506
+      git -C "$TOOL" checkout --detach FETCH_HEAD
+      python -m pip install --upgrade pip
+      python -m pip install -r "$TOOL/requirements.txt"
+      PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
+    displayName: Attack path elimination
+
+  - task: PublishPipelineArtifact@1
+    condition: succeededOrFailed()
+    displayName: Publish attack path report
+    inputs:
+      targetPath: $(Build.ArtifactStagingDirectory)/attack-paths-report
+      artifact: attack-path-report

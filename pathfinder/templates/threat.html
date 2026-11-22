@@ -78,25 +78,18 @@
 </head>
 <body>
 <header>
-  <h1 id="title">Threat model</h1>
+  <h1 id="title">Threats to eliminate</h1>
   <p class="muted"><a href="report.html">Ranked paths</a> · <a href="graph.html">Graph</a></p>
-  <p class="muted">Threats to eliminate. Choose a lens, then a group. The page shows only that group.</p>
-  <section class="about">
-    <h2>What this application does</h2>
-    <p class="muted" id="about-text">The summary is written from the files in this repository. The scan does not run the program.</p>
-  </section>
   <div class="lenses" id="lenses"></div>
   <div class="groups" id="groups"></div>
 </header>
 <main>
-  <div id="panel"><p class="muted">Select a group. Critical, for example, lists only the critical findings: why each one is first, the effect, and the next change.</p></div>
+  <div id="panel"></div>
 </main>
 <script id="data" type="application/json">__PAYLOAD__</script>
 <script>
 const model = JSON.parse(document.getElementById("data").textContent);
 document.getElementById("title").textContent = model.repository + " threat model";
-const about = (model.application || {}).summary;
-if (about) document.getElementById("about-text").textContent = about;
 
 const LENSES = [
   { id: "severity", name: "Severity", order: ["Critical", "High", "Medium", "Low", "Unscored"] },
@@ -195,21 +188,10 @@ function drawPanel() {
   if (group === "__scope") return drawScope(root);
   if (group === "__notes") return drawNotes(root);
   if (group === "__exceptions") return drawExceptions(root);
-  if (!group) {
-    add(root, "p", "Select a group. A click lists only those findings, with why each is prioritized, the effect, and the next change.").className = "muted";
-    return;
-  }
+  if (!group) return;
   const items = members(group).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
   add(root, "h2", group + " · " + items.length);
-  const reachable = items.filter((item) => item.reachability !== "Local signal").length;
-  const high = items.filter((item) => item.exploitability_level === "High").length;
-  add(root, "p", groupReason(items.length, reachable, high)).className = "muted";
   items.forEach((threat, index) => root.appendChild(card(threat, index)));
-}
-
-function groupReason(count, reachable, high) {
-  const noun = count === 1 ? "finding" : "findings";
-  return count + " " + noun + " in " + lens.name + ". " + reachable + " are reachable walks. " + high + " have high exploitability. The rows below are only this group.";
 }
 
 function card(threat, index) {

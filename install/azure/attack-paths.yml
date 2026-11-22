@@ -35,9 +35,7 @@ steps:
       git -C "$TOOL" checkout --detach FETCH_HEAD
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
-      echo "Phase 1: deep analysis of this repository. Every component is printed as it is read."
       PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
-      echo "Phase 1 finished. Phase 2 validates findings after that analysis and applies recorded exceptions."
       gate=0
       PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan --max-critical 0 || gate=$?
       cat "$(Build.ArtifactStagingDirectory)/attack-paths-report/summary.md"
