@@ -18,8 +18,13 @@ jobs:
       - name: Checkout this repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+<<<<<<< HEAD
       - name: Deep review
         uses: TemTech-Solutions/attack-path-elimination@1900173d160f2c376edbee0ba9019b39caeb62d6
+=======
+      - name: Deep scan
+        uses: TemTech-Solutions/attack-path-elimination@f49ef67ae8a74c382b01a64cb033878a60afeee0
+>>>>>>> 32cde73307f2ed0b892e22688489a032a33502bc
         with:
           phase: review
           comment: "false"
@@ -33,8 +38,29 @@ jobs:
       - name: Checkout this repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+<<<<<<< HEAD
       - name: Download the deep review
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+=======
+      - name: Exception scan
+<<<<<<< HEAD
+        uses: TemTech-Solutions/attack-path-elimination@1fb0181e8313bb56017a001a5b0d0c7b47214def
+=======
+<<<<<<< HEAD
+        uses: TemTech-Solutions/attack-path-elimination@42b749df8ab5bc4c9cc27323892025c159c7d10d
+=======
+<<<<<<< HEAD
+        uses: TemTech-Solutions/attack-path-elimination@929c5b639adb8ba7cd85f9046dc6b9f90e770241
+=======
+        uses: TemTech-Solutions/attack-path-elimination@79837616e5ca06243ba4dc2a94be9abfc82b82a8
+=======
+      - name: Validate findings after analysis
+        uses: TemTech-Solutions/attack-path-elimination@f49ef67ae8a74c382b01a64cb033878a60afeee0
+>>>>>>> 321ae496d1937548308f8c72c9555489f4a46506
+>>>>>>> 4b3e6471b6a2b71645b749877675039a4ee3ddfc
+>>>>>>> 36702dfcfa86b9372c41fca9f26be0bcd8a64649
+>>>>>>> 2b7923407d962881e115a98ab9f0201563deb3a5
+>>>>>>> 32cde73307f2ed0b892e22688489a032a33502bc
         with:
           name: attack-path-review
           path: attack-paths-report
