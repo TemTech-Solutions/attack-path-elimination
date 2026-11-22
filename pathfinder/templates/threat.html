@@ -215,7 +215,6 @@ function card(threat, index) {
     if (threat.access) add(el, "p", threat.access);
     labeled(el, "Foothold:", threat.foothold);
     labeled(el, "Connected attack paths:", threat.connected);
-    labeled(el, "Why this is first:", threat.why || "");
     labeled(el, "Effect:", threat.effect || "");
     labeled(el, "Database:", threat.database);
     labeled(el, "Next step:", threat.recommendation);

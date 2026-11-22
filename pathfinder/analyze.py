@@ -67,6 +67,7 @@ def analyze(target: Path) -> dict:
     if root.is_file():
         root = root.parent
     model = RepoModel(root)
+    _say("Reviewing the repository against the OWASP Subtractive Hardening baseline")
     python_facts = []
     openapi_files = []
     known: set[str] = set()
@@ -149,6 +150,9 @@ def analyze(target: Path) -> dict:
     known = _announce(model, known)
     adapt_repository(model)
     _announce(model, known)
+    from pathfinder.harden import validate_baseline
+
+    validate_baseline(model, _say)
     apply_exceptions(model)
     paths = build_paths(model)
     suppressed = list(getattr(model, "suppressed", []) or [])
@@ -293,6 +297,7 @@ def _package(model: RepoModel, paths: list[dict]) -> dict:
         "adaptation": getattr(model, "adaptation", None),
         "suppressed": list(getattr(model, "suppressed", []) or []),
         "ignored_credentials": list(getattr(model, "ignored_credentials", []) or []),
+        "baseline_validation": getattr(model, "baseline_validation", None),
     }
     return attach_graph(packaged)
 

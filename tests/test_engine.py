@@ -166,7 +166,7 @@ def test_html_and_comment_carry_the_chain(payment_repo: Path):
     assert "Findings on this path" in html
     assert "For the exception record" in html
     assert "An attacker can use" in html
-    assert "Why this is first" in html
+    assert "Why this is first" not in html
     assert result["validation"]["kept"] >= 1
     assert "pathfinder-exceptions.yml" in html
     assert "exceptions:" in html

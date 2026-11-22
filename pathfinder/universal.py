@@ -81,8 +81,8 @@ EXEC = re.compile(
     re.I,
 )
 SQL_BUILD = re.compile(
-    r"\b(SELECT|INSERT|UPDATE|DELETE)\b.{0,160}(\+|%s|%\{|\$\{|\.format\s*\(|f[\"']|\$[A-Za-z_])",
-    re.I,
+    r"(?is)\b(?:SELECT\b.{0,80}\bFROM|INSERT\b.{0,40}\bINTO|UPDATE\b.{0,60}\bSET|DELETE\b.{0,40}\bFROM)\b"
+    r".{0,160}(?:\+|%s|%\{|\$\{|\{[A-Za-z_]|\$[A-Za-z_]|\.format\s*\()"
 )
 HTTP_VAR = re.compile(
     r"\b(?:fetch|axios|requests\.(?:get|post|put|delete)|http\.get|got|openStream|WebClient|RestTemplate|curl_exec|httpx\.(?:get|post)|URL)\s*\(\s*(?:request|req|params|input|query|body|args|url|uri|callback|target|user|host|dest)\b",
@@ -329,7 +329,6 @@ def _signals(model: RepoModel, rel: str, text: str, language: str, *, config_onl
         if not _code_line(raw):
             continue
         previous = lines[index - 2] if index > 1 else ""
-        blob = raw if not previous else previous + " " + raw
         for theme, rule, exposure, privilege, asset, exploit, pattern, title, recommendation in SIGNALS:
             if config_only and theme in {"rce", "sqli", "ssrf"}:
                 continue
@@ -339,12 +338,18 @@ def _signals(model: RepoModel, rel: str, text: str, language: str, *, config_onl
                 continue
             if title.startswith("Non-cryptographic") and not re.search(r"password|secret|token|session", raw, re.I):
                 continue
-            matched = pattern.search(raw) or (theme == "sqli" and pattern.search(blob))
+            statement = _sql_statement(previous, raw) if theme == "sqli" else raw
+            matched = pattern.search(statement)
+            if theme == "sqli" and matched and statement != raw.strip() and pattern.search(previous):
+                matched = None
             if not matched:
                 continue
             if _near(model, rel, index, theme, window=8):
                 continue
             anchor = _anchor(model, rel, index, language, title)
+            line_no = index
+            if theme == "sqli" and statement != raw.strip():
+                line_no = max(index - 1, 1)
             _observe(
                 model,
                 theme=theme,
@@ -352,8 +357,8 @@ def _signals(model: RepoModel, rel: str, text: str, language: str, *, config_onl
                 title=title,
                 node_id=anchor,
                 file=rel,
-                line=index,
-                evidence=raw.strip()[:180],
+                line=line_no,
+                evidence=statement.strip()[:180],
                 exposure=exposure,
                 privilege=privilege,
                 asset=asset,
@@ -362,6 +367,15 @@ def _signals(model: RepoModel, rel: str, text: str, language: str, *, config_onl
             )
             emitted += 1
             break
+
+
+def _sql_statement(previous: str, raw: str) -> str:
+    """Join only when the previous line is an unfinished statement."""
+    prev = (previous or "").rstrip()
+    current = raw.strip()
+    if prev and (prev.endswith(("+", "\\")) or prev.count('"') % 2 == 1 or prev.count("'") % 2 == 1):
+        return f"{prev} {current}".strip()
+    return current
 
 
 def note_ignored_credential(model: RepoModel, rel: str, line: int, name: str, reason: str) -> None:

@@ -24,7 +24,9 @@ def runtime_summary(result: dict) -> str:
     findings = scorecard.get("findings", len(result.get("findings") or []))
     removals = int(((result.get("unused") or {}).get("summary") or {}).get("removals") or 0)
     skipped = _exceptions_skipped(result)
-    lines = ["## Attack path summary", "", "What was found", ""]
+    lines = ["## Attack path summary", ""]
+    lines.extend(_validation_lines(result))
+    lines.extend(["What was found", ""])
     lines.append(
         f"{len(critical)} critical path(s), {len(high)} high path(s), and {medium} medium path(s). "
         f"{findings} finding(s) stayed in the report. "
@@ -50,6 +52,50 @@ def runtime_summary(result: dict) -> str:
     lines.append("report.html, graph.html, threat-model.html")
     lines.append("")
     return "\n".join(lines)
+
+
+def _validation_lines(result: dict) -> list[str]:
+    """The baseline check, printed ahead of the finding summary."""
+    validation = result.get("baseline_validation") or {}
+    if not validation:
+        return []
+    lines = [
+        "Validated against the OWASP Subtractive Hardening baseline",
+        "",
+        (
+            f"Kept {validation.get('kept', 0)}. Rejected {validation.get('rejected', 0)}. "
+            "Deletion stays ahead of constraint."
+        ),
+        "",
+    ]
+    decisions = list(validation.get("decisions") or [])
+    for item in decisions[:30]:
+        lines.append(f"- {item.get('log')}")
+    extra = len(decisions) - 30
+    if extra > 0:
+        lines.append(f"- {extra} more validation line(s) were printed during the scan.")
+    lines.append("")
+    return lines
+
+
+def _plain_lines(item: dict, indent: str) -> list[str]:
+    """The same sections the HTML reports show, for the markdown reports."""
+    lines = []
+    if item.get("access"):
+        lines.append(f"{indent}{item['access']}")
+    for label, key in (
+        ("Foothold", "foothold"),
+        ("Connected attack paths", "connected"),
+        ("Effect", "effect"),
+        ("Database", "database"),
+        ("Next step", "recommendation"),
+    ):
+        value = item.get(key)
+        if value:
+            lines.append(f"{indent}**{label}:** {value}")
+    if not lines and item.get("evidence"):
+        lines.append(f"{indent}{item['evidence']}")
+    return lines
 
 
 def _exceptions_skipped(result: dict) -> int:
@@ -103,12 +149,8 @@ def pr_comment(result: dict) -> str:
         for finding in extra:
             place = f"`{finding.get('file')}:{finding.get('line')}`" if finding.get("file") else ""
             title = finding.get("title") or finding.get("rule") or "Finding"
-            evidence = finding.get("evidence") or ""
             lines.append(f"- **{finding.get('band')} {finding.get('score')}** {finding.get('rule') or ''} {title} {place}".rstrip())
-            if evidence:
-                lines.append(f"  - {evidence}")
-            if finding.get("recommendation"):
-                lines.append(f"  - Remove: {finding['recommendation']}")
+            lines.extend(_plain_lines(finding, "  - "))
         lines.append("")
     per = result.get("per") or {}
     lines.append(
@@ -252,15 +294,10 @@ def _threat_lines(result: dict, covered: set) -> list[str]:
         frameworks = ", ".join((threat.get("frameworks") or [])[:4])
         title = threat.get("name") or "Threat"
         lines.append(f"- **{threat.get('band')} {threat.get('score')}** {title} {place}".rstrip())
+        lines.extend(_plain_lines(threat, "  - "))
         lines.append(f"  - STRIDE: {stride}")
         if frameworks:
             lines.append(f"  - Frameworks: {frameworks}")
-        if hop.get("evidence"):
-            lines.append(f"  - {hop['evidence']}")
-        if threat.get("effect"):
-            lines.append(f"  - {threat['effect']}")
-        if threat.get("recommendation"):
-            lines.append(f"  - Remove: {threat['recommendation']}")
     lines.append("")
     return lines
 
@@ -283,11 +320,13 @@ def _path_block(path: dict) -> list[str]:
     for index, hop in enumerate(path.get("hops") or [], start=1):
         place = f"`{hop['file']}:{hop['line']}`" if hop.get("file") else "resolved from the graph"
         lines.append(f"{index}. {hop.get('label') or 'Hop'} · {place}")
-        if hop.get("evidence"):
-            lines.append(f"   - {hop['evidence']}")
+        lines.extend(_plain_lines(hop, "   - "))
     if path.get("hops"):
         lines.append("")
+    shown = {hop.get("recommendation") for hop in path.get("hops") or [] if hop.get("recommendation")}
     for recommendation in (path.get("recommendations") or [])[:3]:
+        if recommendation in shown:
+            continue
         lines.append(f"- Remove: {recommendation}")
     lines.append("")
     return lines

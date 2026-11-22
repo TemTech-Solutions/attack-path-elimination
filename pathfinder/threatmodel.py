@@ -164,7 +164,10 @@ def _from_finding(finding: dict, result: dict) -> dict:
         "category": finding.get("theme") or "review",
         "band": finding.get("band") or "",
         "score": finding.get("score") or 0,
-        "narrative": f"{finding.get('title') or 'Finding'}. {finding.get('evidence') or ''}".strip(),
+        "narrative": (
+            finding.get("access")
+            or f"{finding.get('title') or 'Finding'}. {finding.get('evidence') or ''}".strip()
+        ),
         "node_ids": [finding["node_id"]] if finding.get("node_id") else [],
         "hops": [
             {
@@ -511,7 +514,7 @@ def _neighbor_labels(others: list) -> list[str]:
     return labels
 
 
-def _reading(evidence: str, title: str, rule: str) -> dict[str, str]:
+def _reading(evidence: str, title: str, rule: str, file: str = "") -> dict[str, str]:
     """Describe this line from the code on it, not from a shared paragraph."""
     low = (evidence or "").lower()
     call = _callee(evidence)
@@ -523,12 +526,12 @@ def _reading(evidence: str, title: str, rule: str) -> dict[str, str]:
     if learned:
         token, kind = learned.group(1), learned.group(2)
         return {
-            "does": f"This line is grouped with the {kind} names already confirmed in this repository because both contain '{token}'.",
-            "reason": f"The shared token is '{token}'. This is a separate line from the {kind} finding it was learned from.",
-            "why": f"'{token}' is the name that places this line in the {kind} group.",
-            "effect": f"this line stays in the {kind} group while it uses '{token}' the same way",
-            "change": f"remove the {kind} use of '{token}' on this line, or record an exception if that name is intentional",
-            "anchor": f"the shared {kind} token '{token}'",
+            "does": f"This line uses the word '{token}', the same word as another {kind} finding in this repository.",
+            "reason": f"It is a different line. Review it on its own.",
+            "why": f"'{token}' is the word shared with the other {kind} finding.",
+            "effect": f"this line stays with the other {kind} finding while it uses '{token}'",
+            "change": f"if '{token}' is not the same problem, record an exception for this line. If it is, remove the {kind} use of '{token}' here",
+            "anchor": f"the word '{token}'",
         }
 
     if parts and any(token in low for token in ("eval(", "scriptengine", "exec(", "system(", "popen", "shell_exec")):
@@ -573,18 +576,10 @@ def _reading(evidence: str, title: str, rule: str) -> dict[str, str]:
             "anchor": f"{call or 'the call'} running {subject}",
         }
     if re.search(r"\b(select|insert|update|delete)\b", low):
-        verb, table, variable = _sql_bits(evidence)
-        subject = variable or param or "the added value"
-        question = verb or "database"
-        about = f" for {table}" if table else ""
-        return {
-            "does": f"{host}builds a {question} question{about} by concatenating {subject} into the question text.",
-            "reason": f"{subject} sits inside the {question} question{about}, so the database reads {subject} as part of the instruction rather than as a bound value.",
-            "why": f"The {question} question{about} is assembled on this line, and {subject} is one of the pieces.",
-            "effect": f"the {question} question{about} changes with {subject}",
-            "change": f"write the full {question} question{about} in the file, and pass {subject} as a bound value beside it",
-            "anchor": f"the {question} question{about} that includes {subject}",
-        }
+        from pathfinder.plain import explain_line, not_a_query
+
+        if not not_a_query("query", evidence or ""):
+            return explain_line(evidence, "Query is built from a string", file)
     if any(token in low for token in ("requests.", "fetch(", "openstream", "http.get", "curl_exec", "resttemplate", "webclient", "169.254.169.254", "axios", "httpx.", "new url")):
         subject = param or "the address"
         destination = quotes[0] if quotes else ""
@@ -617,7 +612,7 @@ def _reading(evidence: str, title: str, rule: str) -> dict[str, str]:
             "reason": f"A caller who can request {route} is not identified by this file before the action runs.",
             "why": f"{route} has no authorization check in this file, so the route itself is the open step.",
             "effect": f"{route} runs for a caller this file does not name",
-            "change": f"require a role, an owner, and a state check before {route} runs, or delete {route} if the application does not need it",
+            "change": f"erase `{route}` if the application does not need it. If the route must stay, erase the open access by requiring a role, an owner, and a state check before it runs",
             "anchor": f"the open route {route}",
         }
     if "<secret value>" in (evidence or "") or "private key" in low or low.startswith("access key"):
@@ -626,13 +621,14 @@ def _reading(evidence: str, title: str, rule: str) -> dict[str, str]:
         if assign:
             assigned = assign.group(1)
         name = assigned or "the secret"
+        shown = f"`{_brief(evidence, 140)}`"
         return {
-            "does": f"This line writes a secret value into {name}.",
-            "reason": f"Anyone who can read the file can read {name}, because the secret is in the file instead of a secret store.",
+            "does": f"{shown} writes a secret value into {name}.",
+            "reason": f"Erase that value. Anyone who can read the file can read {name}.",
             "why": f"Reading the file is enough to read the secret in {name}.",
-            "effect": f"the secret in {name} can be read from this file",
-            "change": f"delete the secret value from {name} and read it from the secret store at runtime",
-            "anchor": f"the secret written in {name}",
+            "effect": f"the secret stored for {name} can be read from this file",
+            "change": f"erase the secret value in {shown} and read {name} from the secret store, leaving no secret in the file",
+            "anchor": f"the secret written for {name}",
         }
     if any(token in low for token in ("password", "secret", "api_key", "apikey", "token=", "aws_secret", "private_key", "aws_access")):
         assigned = ""
@@ -654,18 +650,12 @@ def _reading(evidence: str, title: str, rule: str) -> dict[str, str]:
             "reason": "The wildcard is written in the policy, so the principal is not limited to one operation and one resource.",
             "why": "A star in Action, Resource, Principal, or the network range is the whole permission.",
             "effect": "the policy allows more than the operations this workload performs",
-            "change": "replace the wildcard with the named principal, actions, and resources this workload uses",
+            "change": f"erase the wildcard in `{_brief(evidence, 120)}` and name the one principal, the actions, and the resources this workload uses",
             "anchor": "the wildcard grant on this line",
         }
-    distinctive = quotes[0] if quotes else (call or title or rule or "this line")
-    return {
-        "does": f"This line is `{_brief(evidence, 140) or title}`.",
-        "reason": f"{title or rule or 'This finding'} is raised here because of {distinctive}, which is specific to this line.",
-        "why": f"The detail that makes this finding this case is {distinctive}.",
-        "effect": f"{distinctive} is the behavior to remove from this line",
-        "change": f"change this line so it no longer does `{_brief(evidence, 80) or distinctive}`",
-        "anchor": str(distinctive),
-    }
+    from pathfinder.plain import explain_line
+
+    return explain_line(evidence, str(title or rule or "This line"), file)
 
 
 def _execution_change(call: str, variable: str, fixed: str) -> str:
@@ -685,7 +675,7 @@ def _explain(hop: dict, reachability: str, band: str, score, level: str, others:
     evidence = _brief(raw_evidence)
     title = hop.get("label") or hop.get("title") or "this finding"
     place = _spot(hop)
-    reading = _reading(evidence, str(title), str(hop.get("rule") or ""))
+    reading = _reading(evidence, str(title), str(hop.get("rule") or ""), str(hop.get("file") or ""))
     where = f" at {place}" if place and place != "this file" else ""
     anchor = reading.get("anchor") or title
     labels = _neighbor_labels(others)
@@ -710,7 +700,7 @@ def _explain(hop: dict, reachability: str, band: str, score, level: str, others:
                 + f", and {described[-1]}. Each of those steps has its own line."
             )
     else:
-        connected = f"No other finding is chained to {anchor}. This walk is only that step in {place}."
+        connected = f"No other finding is tied to this line. This walk is only {place}."
     nxt = labels[0] if labels else ""
     if labels and reachability == "Reachable from an entry":
         foothold = (
@@ -726,14 +716,18 @@ def _explain(hop: dict, reachability: str, band: str, score, level: str, others:
         )
     else:
         foothold = (
-            f"No outside caller reaches {place} in this scan. "
-            f"If another path arrives at this file, the foothold is {anchor}."
+            f"This scan did not find a public page that reaches {place}. "
+            f"The problem is still {anchor}. "
+            f"If a page starts calling this file, that page is the way in."
         )
     access = f"An attacker can use this as an attack path to eliminate{where}. {reading['does']} {reading['reason']}"
     why = f"{reading.get('why') or reading['reason']} That is why this finding ranks {band} {score}."
     effect = f"Effect: {reading['effect']}. The line is in {place}."
-    recommendation = f"In {place}, {reading['change']}."
-    if evidence:
+    change = str(reading["change"]).strip().rstrip(".")
+    if change:
+        change = change[0].lower() + change[1:]
+    recommendation = f"In {place}, {change}."
+    if evidence and evidence not in change and evidence not in recommendation:
         recommendation += f" The line to change is `{evidence}`."
     from pathfinder.catalog import match as catalog_match
 
@@ -864,7 +858,9 @@ def attach_reviews(result: dict) -> dict:
     paths = result.get("paths") or []
     if isinstance(paths, list):
         paths.sort(key=path_key)
-    return result
+    from pathfinder.graphview import apply_plain_reports
+
+    return apply_plain_reports(result)
 
 
 def _hop_place(hop: dict) -> str:

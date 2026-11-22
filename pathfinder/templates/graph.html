@@ -559,9 +559,6 @@ function findingBlock(finding, seen) {
   if (!already(seen, access)) add(body, "p", access);
   if (finding.foothold && !already(seen, finding.foothold)) labeled(body, "Foothold:", finding.foothold);
   if (finding.connected && !already(seen, finding.connected)) labeled(body, "Connected attack paths:", finding.connected);
-  let why = finding.why || "This scan confirmed the file and line.";
-  if (scoreLead && why.startsWith(scoreLead)) why = why.slice(scoreLead.length).replace(/^[.\s]+/, "");
-  if (why && !already(seen, why)) labeled(body, "Why this is first:", why);
   if (finding.effect && !already(seen, finding.effect)) labeled(body, "Effect:", finding.effect);
   if (finding.database && !already(seen, finding.database)) labeled(body, "Database:", finding.database);
   if (finding.recommendation && !already(seen, finding.recommendation)) labeled(body, "Next step:", finding.recommendation);

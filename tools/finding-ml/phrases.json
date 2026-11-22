@@ -1,0 +1,86 @@
+{
+  "sql": {
+    "marker": "(?i)\\b(?:SELECT\\b.{0,80}\\bFROM|INSERT\\b.{0,40}\\bINTO|UPDATE\\b.{0,60}\\bSET|DELETE\\b.{0,40}\\bFROM)\\b",
+    "description": "This line pastes {subject} into a database question. The database can treat {subject} as part of the command instead of as one value.",
+    "effect": "a person who can change {subject} can change what the database is asked to do",
+    "remediation": "Take {subject} out of the question text. Keep the question as fixed words and pass {subject} as a separate argument. The line to rewrite is `{line}`."
+  },
+  "secret": {
+    "marker": "(?i)(?:<secret value>|\\b(?:secret|password|passwd|token|api[_-]?key|credential)\\b\\s*[:=])",
+    "description": "This line writes a secret value into {subject}. Anyone who can read the file can read that secret.",
+    "effect": "the secret in {subject} can be read from the file",
+    "remediation": "Delete the secret value from {subject}. Read {subject} from the secret store when the program runs, and leave no secret in the file."
+  },
+  "action": {
+    "marker": "(?i)(?:uses:\\s*)?[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[A-Za-z0-9._-]+",
+    "description": "This line runs {subject} from a tag. A tag can be moved, so the workflow can run different code than the copy that was reviewed.",
+    "effect": "the workflow can run a different copy of {subject} than the one that was reviewed",
+    "remediation": "Replace the tag on {subject} with the 40-character commit for that release, and keep the version in a comment."
+  },
+  "exec": {
+    "marker": "(?i)\\b(?:eval|exec|system|popen|shell_exec|scriptengine)\\s*\\(|\\bnew\\s+Function\\s*\\(|shell\\s*=\\s*True",
+    "description": "This line runs {subject} as a command. The person who supplies that text chooses what runs.",
+    "effect": "the call runs whatever text is in {subject}",
+    "remediation": "Delete the call that runs {subject}. Keep {subject} as data for one operation written in full in this file. The line to change is `{line}`."
+  },
+  "deser": {
+    "marker": "(?i)pickle\\.loads|yaml\\.load\\s*\\(|unserialize\\s*\\(|readObject\\s*\\(|ObjectInputStream|BinaryFormatter",
+    "description": "This line rebuilds objects from {subject}. The loader can construct more than the data fields this file expects.",
+    "effect": "the loader can build objects from {subject} while it reads the value",
+    "remediation": "Stop passing {subject} to the loader. Read a data format that cannot construct objects. The line to change is `{line}`."
+  },
+  "ssrf": {
+    "marker": "(?i)169\\.254\\.169\\.254|requests\\.|fetch\\s*\\(|axios|httpx\\.|curl_exec|openStream|RestTemplate|WebClient",
+    "description": "This line sends a request to an address taken from {subject}. The program does not write the one host it is allowed to call.",
+    "effect": "the request can go to whatever host is in {subject}",
+    "remediation": "Write the allowed host in the file and stop passing {subject} as the address. The line to change is `{line}`."
+  },
+  "xss": {
+    "marker": "(?i)innerHTML|dangerouslySetInnerHTML|document\\.write\\s*\\(",
+    "description": "This line writes {subject} into the page as HTML. A caller can change how the page is built.",
+    "effect": "the page includes whatever is in {subject} as markup",
+    "remediation": "Put {subject} in a text node, not in HTML. The line to change is `{line}`."
+  },
+  "auth": {
+    "marker": "(?i)AllowAnonymous|AllowAny|permitAll|csrf_exempt|\\b(?:GET|POST|PUT|DELETE|PATCH)\\s+/",
+    "description": "This line opens {subject} without naming who is allowed to call it.",
+    "effect": "a caller this file does not name can use {subject}",
+    "remediation": "Require a role, an owner, and a state check before {subject} runs, or delete {subject} if the application does not need it."
+  },
+  "wildcard": {
+    "marker": "(?i)(\\*|0\\.0\\.0\\.0/0).{0,40}(action|resource|principal|ingress|egress)|(action|resource|principal).{0,40}\\*",
+    "description": "This line grants a wildcard. The permission is not limited to one action and one resource.",
+    "effect": "the policy allows more than the operations this workload performs",
+    "remediation": "Replace the wildcard in `{line}` with the named principal, actions, and resources this workload uses."
+  },
+  "tls": {
+    "marker": "(?i)verify\\s*=\\s*False|InsecureSkipVerify|rejectUnauthorized\\s*:\\s*false|CERT_NONE|TrustAll",
+    "description": "This line turns off the check that confirms the other computer's certificate.",
+    "effect": "the program will talk to a computer it did not verify",
+    "remediation": "Delete the setting in `{line}` that turns certificate checks off."
+  },
+  "debug": {
+    "marker": "(?i)\\bDEBUG\\s*=\\s*True\\b|app\\.debug\\s*=\\s*True|display_errors\\s*=\\s*On",
+    "description": "This line leaves the debug switch on. The running program can show internals to a caller.",
+    "effect": "debug output stays available where this program runs",
+    "remediation": "Delete the debug switch in `{line}`."
+  },
+  "path": {
+    "marker": "(?i)\\.\\./|open\\s*\\([^)]*\\+|filepath\\.Join\\(|os\\.path\\.join\\(",
+    "description": "This line builds a file path from {subject}. The path can leave the directory this file should use.",
+    "effect": "the program can open a file chosen by {subject}",
+    "remediation": "Delete {subject} from the file path. Open a file whose path is written in full in this file. The line to change is `{line}`."
+  },
+  "archive": {
+    "marker": "(?i)\\bextractall\\s*\\(",
+    "description": "This line extracts an archive without limiting the path of each entry.",
+    "effect": "an entry in the archive can write outside the directory this file expects",
+    "remediation": "Delete extractall from `{line}`. Extract only names that stay inside one directory written in this file."
+  },
+  "jwt": {
+    "marker": "(?i)jwt\\.decode|algorithms\\s*=\\s*\\[[^\\]]*none",
+    "description": "This line accepts a token without checking its signature.",
+    "effect": "a token this file did not verify can be accepted",
+    "remediation": "Delete verify=False or the none algorithm from `{line}`. Accept one named algorithm and check the signature."
+  }
+}

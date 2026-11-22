@@ -282,6 +282,30 @@ def _pack_objective(name: str, path: dict) -> dict:
     }
 
 
+def apply_plain_reports(result: dict) -> dict:
+    """Use the same plain finding text on graph issues that are a single line."""
+    by_place = {
+        (item.get("rule") or "", item.get("file"), item.get("line")): item
+        for item in result.get("findings") or []
+        if item.get("access")
+    }
+    for issue in (result.get("graph") or {}).get("issues") or []:
+        hops = issue.get("hops") or []
+        if len(hops) != 1:
+            continue
+        hop = hops[0]
+        match = by_place.get((hop.get("rule") or "", hop.get("file"), hop.get("line")))
+        if not match:
+            continue
+        issue["narrative"] = match["access"]
+        issue["diagnosis"] = match["access"]
+        hop["access"] = match["access"]
+        for key in ("foothold", "connected", "effect", "database", "recommendation"):
+            if match.get(key):
+                hop[key] = match[key]
+    return result
+
+
 def _diagnosis(item: dict) -> str:
     narrative = item.get("narrative") or ""
     hops = item.get("hops") or []

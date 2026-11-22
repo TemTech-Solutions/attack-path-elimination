@@ -354,7 +354,7 @@ The header links to `graph.html`, `threat-model.html`, and the unused-code secti
 **Findings on this path** is one card per detection. File, rule, and line stay visible. Open a card for the record:
 
 - How an attacker can use this finding, on this component or by moving into another component in the repository or on the infrastructure the walk reaches
-- **Why this is first**, the **effect**, and the **next step**
+- The **effect** and the **next step**, which names the exact line to change
 - DREAD, STRIDE, PASTA, the exception id, and the walk
 - **For the exception record**, the `pathfinder-exceptions.yml` snippet, Copy, and the inline `# pathfinder: false-positive:` mark
 
@@ -382,9 +382,8 @@ The threat model is the same snapshot as the attack paths, read through the fram
 
 Choose **Severity**, **Reachability**, **Exploitability**, **STRIDE**, **DREAD**, or **PASTA**. Then choose a group. If Critical says `Critical (4)`, that click lists those four findings and nothing else. Select a row to open it. The open record starts with how an attacker can use the finding, on this component or by moving into another component. Then:
 
-- **Why this is first** — the band and score, whether the walk is reachable, the exploitability level, and why a single-file signature scanner would miss it
-- **Effect** — the asset at risk
-- **Next step** — the deletion or constraint
+- **Effect** — what this line allows
+- **Next step** — the exact text to delete or the line to put in its place
 - The walk, with file and line
 - DREAD factors used by the score, the STRIDE labels, the PASTA stage, and an exception id
 - **For the exception record** on every hop, including Copy and the inline false-positive mark

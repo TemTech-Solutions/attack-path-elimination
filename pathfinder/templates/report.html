@@ -635,7 +635,6 @@ function findingDetail(finding) {
   addText(extra, "p", "", finding.access || "An attacker can use this as an attack path to eliminate.");
   labeled(extra, "Foothold:", finding.foothold);
   labeled(extra, "Connected attack paths:", finding.connected);
-  labeled(extra, "Why this is first:", finding.why || "This scan confirmed the file and line.");
   labeled(extra, "Effect:", finding.effect);
   labeled(extra, "Database:", finding.database);
   labeled(extra, "Next step:", finding.recommendation);
