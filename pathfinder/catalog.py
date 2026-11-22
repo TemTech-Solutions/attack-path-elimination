@@ -1,4 +1,4 @@
-"""Official weakness names for the baseline rules.
+"""Weakness names for the baseline rules.
 
 Names, descriptions, and the first mitigation are the wording returned from the
 current CWE definition pages and the OWASP Top 10:2021 and API Security Top 10
@@ -292,7 +292,7 @@ _PATH = ("../", "filepath.join", "os.path.join", "path traversal")
 
 
 def present(entry: dict) -> str:
-    """One attributed sentence a report can show beside the line-specific text."""
+    """CWE and OWASP names for this line. The finding text states the issue."""
     if not entry:
         return ""
     bits = []
@@ -304,10 +304,6 @@ def present(entry: dict) -> str:
             bits.append("not on the 2025 CWE Top 25")
     if entry.get("owasp"):
         bits.append(f"OWASP {entry['owasp']}")
-    if entry.get("description"):
-        bits.append(f"Official description: {entry['description']}")
-    if entry.get("mitigation"):
-        bits.append(f"Official mitigation: {entry['mitigation']}")
     return ". ".join(bits) + ("." if bits else "")
 
 

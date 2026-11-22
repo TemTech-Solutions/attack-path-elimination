@@ -139,6 +139,8 @@
   .clip { margin: 8px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .finding.open .clip { display: none; }
   .detail { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .detail p { margin: 0 0 12px; line-height: 1.5; }
+  .detail strong { font-weight: 700; }
   .copyrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .copyrow p { margin: 0; }
   button.copy {
@@ -227,6 +229,10 @@
     </section>
     <section class="panel" id="detail"><p class="muted">Select a component.</p></section>
   </div>
+  <section class="panel" id="ignored" hidden>
+    <h2>Generic credentials ignored</h2>
+    <div id="ignored-list"></div>
+  </section>
   <section class="panel unused" id="unused-code">
     <h2>Unused code in this repository</h2>
     <div class="outcomes" id="unused-outcomes"></div>
@@ -611,16 +617,28 @@ function renderFindings(path) {
   });
 }
 
+function labeled(parent, label, text) {
+  if (!text) return;
+  const p = document.createElement("p");
+  const strong = document.createElement("strong");
+  strong.textContent = label;
+  p.appendChild(strong);
+  let body = String(text);
+  if (body.toLowerCase().startsWith(label.toLowerCase())) body = body.slice(label.length).trim();
+  p.appendChild(document.createTextNode(" " + body));
+  parent.appendChild(p);
+}
+
 function findingDetail(finding) {
   const extra = document.createElement("div");
   extra.className = "detail";
-  addText(extra, "p", "", finding.access || "An attacker can use this finding on its own. Access stays on this component and does not depend on another file.");
-  if (finding.foothold) addText(extra, "p", "", "Foothold: " + finding.foothold);
-  if (finding.connected) addText(extra, "p", "", "Connected attack paths: " + finding.connected);
-  addText(extra, "p", "", "Why this is first: " + (finding.why || "This scan confirmed the file and line."));
-  if (finding.effect) addText(extra, "p", "", finding.effect);
-  if (finding.database) addText(extra, "p", "", "Database: " + finding.database);
-  if (finding.recommendation) addText(extra, "p", "", "Next step: " + finding.recommendation);
+  addText(extra, "p", "", finding.access || "An attacker can use this as an attack path to eliminate.");
+  labeled(extra, "Foothold:", finding.foothold);
+  labeled(extra, "Connected attack paths:", finding.connected);
+  labeled(extra, "Why this is first:", finding.why || "This scan confirmed the file and line.");
+  labeled(extra, "Effect:", finding.effect);
+  labeled(extra, "Database:", finding.database);
+  labeled(extra, "Next step:", finding.recommendation);
   if (finding.evidence) {
     const evidence = document.createElement("pre");
     evidence.className = "exception";
@@ -781,6 +799,22 @@ function renderStart() {
   });
 }
 
+function renderIgnored() {
+  const rows = data.ignored_credentials || [];
+  const section = document.getElementById("ignored");
+  if (!section || !rows.length) return;
+  section.hidden = false;
+  const root = document.getElementById("ignored-list");
+  rows.forEach((item) => {
+    const p = document.createElement("p");
+    const strong = document.createElement("strong");
+    strong.textContent = (item.file || "") + ":" + (item.line || "");
+    p.appendChild(strong);
+    p.appendChild(document.createTextNode(" " + (item.name || "credential") + " was ignored. " + (item.reason || "")));
+    root.appendChild(p);
+  });
+}
+
 function renderUnused() {
   const unused = data.unused || {};
   const summary = unused.summary || {};
@@ -864,6 +898,7 @@ function render() {
   renderList();
   renderChain();
   renderUnused();
+  renderIgnored();
   renderInstall();
 }
 document.getElementById("mode").addEventListener("click", () => {

@@ -51,7 +51,8 @@
   .Low { color: var(--low); }
   .card { border: 1px solid var(--line); border-radius: 10px; padding: 8px; margin: 0 0 10px; background: var(--panel); }
   .card h3, h2, h3 { margin: 10px 0 6px; }
-  .card p, .step { margin: 4px 0; }
+  .card p, .step { margin: 0 0 12px; line-height: 1.5; }
+  .card strong { font-weight: 700; }
   .step { padding: 6px 8px; border-radius: 8px; background: #0d1526; }
   pre.exception {
     white-space: pre-wrap;
@@ -554,16 +555,16 @@ function findingBlock(finding, seen) {
   title.style.cursor = "pointer";
   const body = document.createElement("div");
   body.hidden = true;
-  const access = finding.access || "An attacker can use this finding on its own. Access stays on this component and does not depend on another file.";
+  const access = finding.access || "An attacker can use this as an attack path to eliminate.";
   if (!already(seen, access)) add(body, "p", access);
-  if (finding.foothold && !already(seen, finding.foothold)) add(body, "p", "Foothold: " + finding.foothold);
-  if (finding.connected && !already(seen, finding.connected)) add(body, "p", "Connected attack paths: " + finding.connected);
+  if (finding.foothold && !already(seen, finding.foothold)) labeled(body, "Foothold:", finding.foothold);
+  if (finding.connected && !already(seen, finding.connected)) labeled(body, "Connected attack paths:", finding.connected);
   let why = finding.why || "This scan confirmed the file and line.";
   if (scoreLead && why.startsWith(scoreLead)) why = why.slice(scoreLead.length).replace(/^[.\s]+/, "");
-  if (why && !already(seen, why)) add(body, "p", "Why this is first: " + why);
-  if (finding.effect && !already(seen, finding.effect)) add(body, "p", finding.effect);
-  if (finding.database && !already(seen, finding.database)) add(body, "p", "Database: " + finding.database);
-  if (finding.recommendation && !already(seen, finding.recommendation)) add(body, "p", "Next step: " + finding.recommendation);
+  if (why && !already(seen, why)) labeled(body, "Why this is first:", why);
+  if (finding.effect && !already(seen, finding.effect)) labeled(body, "Effect:", finding.effect);
+  if (finding.database && !already(seen, finding.database)) labeled(body, "Database:", finding.database);
+  if (finding.recommendation && !already(seen, finding.recommendation)) labeled(body, "Next step:", finding.recommendation);
   if (finding.dread_text) add(body, "p", finding.dread_text);
   if ((finding.stride || []).length) add(body, "p", "STRIDE · " + finding.stride.join(", "));
   if (finding.pasta) add(body, "p", "PASTA · " + finding.pasta);
@@ -688,6 +689,17 @@ function mentioned(seen, text) {
   return false;
 }
 function nameOf(id) { return byId[id] ? byId[id].name : id; }
+function labeled(parent, label, text) {
+  if (!text) return;
+  const p = document.createElement("p");
+  const strong = document.createElement("strong");
+  strong.textContent = label;
+  p.appendChild(strong);
+  let body = String(text);
+  if (body.toLowerCase().startsWith(label.toLowerCase())) body = body.slice(label.length).trim();
+  p.appendChild(document.createTextNode(" " + body));
+  parent.appendChild(p);
+}
 function add(parent, tag, text) {
   const el = document.createElement(tag);
   el.textContent = text;

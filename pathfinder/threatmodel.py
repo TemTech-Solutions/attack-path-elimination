@@ -366,11 +366,11 @@ def _basename(file: str) -> str:
 
 
 def _spot(hop: dict) -> str:
-    name = _basename(str(hop.get("file") or ""))
+    name = str(hop.get("file") or "").replace("\\", "/")
     line = hop.get("line")
-    if line:
+    if name and line:
         return f"{name}:{line}"
-    return name
+    return name or "this file"
 
 
 def _quotes(evidence: str) -> list[str]:
@@ -620,26 +620,33 @@ def _reading(evidence: str, title: str, rule: str) -> dict[str, str]:
             "change": f"require a role, an owner, and a state check before {route} runs, or delete {route} if the application does not need it",
             "anchor": f"the open route {route}",
         }
-    if any(token in low for token in ("password", "secret", "api_key", "apikey", "token=", "aws_secret", "private_key", "aws_access")):
+    if "<secret value>" in (evidence or "") or "private key" in low or low.startswith("access key"):
         assigned = ""
         assign = re.search(r"\b([A-Za-z_][\w.]*)\s*[:=]", evidence or "")
         if assign:
             assigned = assign.group(1)
-        shown = quotes[0] if quotes else ""
         name = assigned or "the secret"
-        if shown:
-            does = f"This line assigns {name} in the file, and the assigned text is written here."
-            reason = f"Anyone who can read the file can read {name}. The value is not loaded from a secret store."
-        else:
-            does = f"This line places {name} in the file."
-            reason = f"Anyone who can read the file can read {name}."
         return {
-            "does": does,
-            "reason": reason,
-            "why": f"{name} is stored in the source, so reading the file is enough to read it.",
-            "effect": f"{name} can be read from this file",
-            "change": f"delete {name} from the file and read it from the secret store at runtime",
-            "anchor": f"{name} written in this file",
+            "does": f"This line writes a secret value into {name}.",
+            "reason": f"Anyone who can read the file can read {name}, because the secret is in the file instead of a secret store.",
+            "why": f"Reading the file is enough to read the secret in {name}.",
+            "effect": f"the secret in {name} can be read from this file",
+            "change": f"delete the secret value from {name} and read it from the secret store at runtime",
+            "anchor": f"the secret written in {name}",
+        }
+    if any(token in low for token in ("password", "secret", "api_key", "apikey", "token=", "aws_secret", "private_key", "aws_access")):
+        assigned = ""
+        assign = re.search(r"\b([A-Za-z_][\w.]*)", evidence or "")
+        if assign:
+            assigned = assign.group(1)
+        name = assigned or "the secret"
+        return {
+            "does": f"This line makes {name} available to this file.",
+            "reason": f"A run of this file can read {name}. The secret should stay in the secret store.",
+            "why": f"{name} is reachable from this line, so the secret is part of the attack path.",
+            "effect": f"{name} can be read when this file runs",
+            "change": f"remove {name} from this file and keep it in the secret store",
+            "anchor": f"{name} on this line",
         }
     if "*" in (evidence or "") and any(token in low for token in ("action", "resource", "principal", "0.0.0.0/0")):
         return {
@@ -722,7 +729,7 @@ def _explain(hop: dict, reachability: str, band: str, score, level: str, others:
             f"No outside caller reaches {place} in this scan. "
             f"If another path arrives at this file, the foothold is {anchor}."
         )
-    access = f"An attacker can use {title}{where}. {reading['does']} {reading['reason']}"
+    access = f"An attacker can use this as an attack path to eliminate{where}. {reading['does']} {reading['reason']}"
     why = f"{reading.get('why') or reading['reason']} That is why this finding ranks {band} {score}."
     effect = f"Effect: {reading['effect']}. The line is in {place}."
     recommendation = f"In {place}, {reading['change']}."

@@ -48,7 +48,8 @@
     margin: 0 0 10px;
   }
   .card h3 { margin: 0 0 8px; font-size: 16px; cursor: pointer; }
-  .card p { margin: 4px 0; }
+  .card p { margin: 0 0 12px; line-height: 1.5; }
+  .card strong { font-weight: 700; }
   .Critical { color: var(--critical); }
   .High { color: var(--high); }
   .Medium { color: var(--medium); }
@@ -212,12 +213,12 @@ function card(threat, index) {
   if (openId === id) {
     el.id = "open-threat";
     if (threat.access) add(el, "p", threat.access);
-    if (threat.foothold) add(el, "p", "Foothold: " + threat.foothold);
-    if (threat.connected) add(el, "p", "Connected attack paths: " + threat.connected);
-    add(el, "p", "Why this is first: " + (threat.why || ""));
-    add(el, "p", threat.effect || "");
-    if (threat.database) add(el, "p", "Database: " + threat.database);
-    if (threat.recommendation) add(el, "p", "Next step: " + threat.recommendation);
+    labeled(el, "Foothold:", threat.foothold);
+    labeled(el, "Connected attack paths:", threat.connected);
+    labeled(el, "Why this is first:", threat.why || "");
+    labeled(el, "Effect:", threat.effect || "");
+    labeled(el, "Database:", threat.database);
+    labeled(el, "Next step:", threat.recommendation);
     el.appendChild(detail(threat));
   }
   return el;
@@ -391,6 +392,17 @@ function show(value) {
   return String(value);
 }
 
+function labeled(parent, label, text) {
+  if (!text) return;
+  const p = document.createElement("p");
+  const strong = document.createElement("strong");
+  strong.textContent = label;
+  p.appendChild(strong);
+  let body = String(text);
+  if (body.toLowerCase().startsWith(label.toLowerCase())) body = body.slice(label.length).trim();
+  p.appendChild(document.createTextNode(" " + body));
+  parent.appendChild(p);
+}
 function add(parent, tag, text) {
   const el = document.createElement(tag);
   el.textContent = text;

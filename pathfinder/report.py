@@ -36,6 +36,16 @@ def runtime_summary(result: dict) -> str:
         lines.append(lead[0].get("narrative") or "")
     lines.append("")
     lines.append(f"Exceptions skipped: {skipped}")
+    ignored = list(result.get("ignored_credentials") or [])
+    if ignored:
+        lines.append("")
+        lines.append("Generic credentials ignored")
+        lines.append("")
+        for item in ignored[:20]:
+            lines.append(f"- {item.get('file')}:{item.get('line')} {item.get('name')}. {item.get('reason')}")
+        extra = len(ignored) - 20
+        if extra > 0:
+            lines.append(f"- {extra} more ignored credential line(s) were printed during analysis.")
     lines.append("")
     lines.append("report.html, graph.html, threat-model.html")
     lines.append("")

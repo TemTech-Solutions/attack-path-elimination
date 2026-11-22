@@ -292,6 +292,7 @@ def _package(model: RepoModel, paths: list[dict]) -> dict:
         "trend": None,
         "adaptation": getattr(model, "adaptation", None),
         "suppressed": list(getattr(model, "suppressed", []) or []),
+        "ignored_credentials": list(getattr(model, "ignored_credentials", []) or []),
     }
     return attach_graph(packaged)
 

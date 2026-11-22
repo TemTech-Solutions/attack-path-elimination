@@ -8,7 +8,9 @@ line that shows the edge, and the deletion or constraint.
 
 from __future__ import annotations
 
+import math
 import re
+from collections import Counter
 from pathlib import Path
 
 from pathfinder.baseline import rule_recommendation
@@ -91,9 +93,24 @@ SECRET_ASSIGN = re.compile(
     re.I,
 )
 PLACEHOLDER = re.compile(
-    r"placeholder|changeme|example|your[-_]?token|todo|dummy|fake|not[-_]?a[-_]?secret|xxx+|redacted|sample",
+    r"placeholder|changeme|change[-_ ]?me|example|your[-_ ]?(?:token|secret|password|key)|todo|dummy|fake|not[-_]?a[-_]?secret|xxx+|redacted|sample|insert[-_ ]?(?:key|secret|token)|replace[-_ ]?me",
     re.I,
 )
+GENERIC_VALUE = re.compile(
+    r"(?i)^(?:secret|password|passwd|token|apikey|api[_-]?key|credential|credentials|changeme|example|placeholder|dummy|fake|test|testing|admin|root|guest|default|none|null|nil|undefined|true|false|todo|dev|local|localhost|password123|secret123|token123)$"
+)
+GENERIC_WORD = re.compile(r"(?i)^(password|secret|token|changeme|example|test|apikey|api_key|credential)\d{0,8}$")
+WORD_VALUE = re.compile(r"[A-Za-z]+([_\-\s][A-Za-z]+)*")
+CREDENTIAL_NAME = re.compile(
+    r"secret|password|passwd|token|api[_-]?key|apikey|private[_-]?key|access[_-]?key|credential",
+    re.I,
+)
+KNOWN_SECRET = re.compile(
+    r"^(?:AKIA|ASIA)[0-9A-Z]{16}$"
+    r"|^(?:ghp_|github_pat_|glpat-|gho_|xox[baprs]-|sk_live_|sk_test_|rk_live_|AIza)[A-Za-z0-9_\-]{8,}"
+    r"|^eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\."
+)
+EXAMPLE_KEY = re.compile(r"EXAMPLE|AKIAIOSFODNN7EXAMPLE|ASIAIOSFODNN7EXAMPLE")
 SCHEMA_KEYS = {"primary_key", "foreign_key", "sort_key", "partition_key"}
 FUNC = re.compile(
     r"""(?m)^[ \t]*(?:(?:pub|public|private|protected|internal|static|async|export|virtual|override|def|fn|fun|func|function|sub|proc|procedure)\s+)*"""
@@ -166,6 +183,18 @@ SIGNALS = (
     ("ssrf", "APP08", "public", "ssrf", "internal", "user_controlled", HTTP_VAR,
      "Outbound request is built from a variable",
      None),
+    ("rce", "APP05", "public", "rce", "production", "user_controlled",
+     re.compile(r"\bnew\s+Function\s*\("),
+     "Code is built with the Function constructor",
+     "Remove the Function constructor. Keep the operation as data that this file does not execute."),
+    ("review", "APP09", "public", "data", "sensitive", "user_controlled",
+     re.compile(r"\bextractall\s*\("),
+     "Archive is extracted without a path limit",
+     "Remove the unrestricted extract. Keep every extracted path inside one directory this file names."),
+    ("review", "APP03", "public", "credential", "credential", "misconfiguration",
+     re.compile(r"jwt\.decode\s*\([^)]*verify\s*=\s*False|algorithms\s*=\s*\[[^\]]*['\"]none['\"]", re.I),
+     "Token signature check is turned off",
+     "Remove the disabled signature check. Accept only a named algorithm with the signature verified."),
 )
 
 
@@ -335,6 +364,16 @@ def _signals(model: RepoModel, rel: str, text: str, language: str, *, config_onl
             break
 
 
+def note_ignored_credential(model: RepoModel, rel: str, line: int, name: str, reason: str) -> None:
+    """Say, at analysis time, that a credential-shaped line had no secret value."""
+    print(f"Ignored generic credential at {rel}:{line}. {name}: {reason}", flush=True)
+    bucket = getattr(model, "ignored_credentials", None)
+    if bucket is None:
+        bucket = []
+        model.ignored_credentials = bucket
+    bucket.append({"file": rel, "line": line, "name": name, "reason": reason})
+
+
 def _secrets(model: RepoModel, rel: str, text: str, language: str) -> None:
     for index, raw in enumerate(text.splitlines(), start=1):
         if not _code_line(raw):
@@ -342,43 +381,88 @@ def _secrets(model: RepoModel, rel: str, text: str, language: str) -> None:
         match = SECRET_ASSIGN.search(raw)
         if not match or _near(model, rel, index, "credential", window=6):
             continue
-        value = match.group("value")
-        if re.search(r"environ|process\.env|getenv|ENV\[|None|null|nil|undefined|secret\(|config\(", value, re.I):
-            continue
-        if value.strip("\"'") == "":
-            continue
         name = match.group("name")
-        if name.lower() in SCHEMA_KEYS or not _secret_value_ok(name, value):
+        value = match.group("value")
+        if name.lower() in SCHEMA_KEYS:
             continue
+        credential_name = bool(CREDENTIAL_NAME.search(name) or name.lower().endswith("key"))
+        if not credential_name:
+            continue
+        decision, reason = _secret_decision(name, value)
+        if decision == "skip":
+            continue
+        if decision == "ignore":
+            note_ignored_credential(model, rel, index, name, reason)
+            continue
+        shown = raw.strip()
+        if value and value in shown:
+            shown = shown.replace(value, "<secret value>")
+        else:
+            shown = f"{name}=<secret value>"
         secret = model.node("secret", name, lane="credential", unique=True, file=rel, line=index, language=language)
         anchor = _anchor(model, rel, index, language, name)
-        model.edge(anchor, secret, "USES_SECRET", file=rel, line=index, evidence=f"{name} is assigned in source")
+        model.edge(anchor, secret, "USES_SECRET", file=rel, line=index, evidence=shown[:180])
         _observe(
             model,
             theme="credential",
             rule="APP03",
-            title="Credential is assigned in source",
+            title="Secret value assigned in source",
             node_id=secret,
             file=rel,
             line=index,
-            evidence=f"{name} is assigned in source",
+            evidence=shown[:180],
             exposure="internal",
             privilege="credential",
             asset="credential",
             exploitability="misconfiguration",
-            recommendation="Remove the literal credential from source. Read it from the environment or a secret store at runtime.",
+            recommendation="Remove the secret value from source. Read it from a secret store at runtime.",
         )
         _remember(model, name, rel, index, secret)
 
 
-def _secret_value_ok(name: str, value: str) -> bool:
-    inner = value.strip("\"'").strip()
-    if PLACEHOLDER.search(inner) or len(inner) < 8 or re.fullmatch(r"[A-Za-z]+", inner):
+def _secret_decision(name: str, value: str) -> tuple[str, str]:
+    """Return detect, ignore (with a reason), or skip (a store lookup, not a literal)."""
+    inner = value.strip().strip("\"'`").strip()
+    if re.search(r"environ|process\.env|getenv|os\.getenv|ENV\[|secrets\.|secret\(|config\(|None|null|nil|undefined", value, re.I):
+        return "skip", ""
+    if inner == "":
+        return "ignore", f"{name} is assigned with an empty value, so there is no secret to read"
+    if EXAMPLE_KEY.search(inner):
+        return "ignore", f"the value of {name} is a documented example key, not a secret"
+    if PLACEHOLDER.search(inner) or GENERIC_VALUE.fullmatch(inner) or GENERIC_WORD.fullmatch(inner):
+        return "ignore", f"the value of {name} is generic credential text, not a secret"
+    if inner.lower().replace("-", "_") == name.lower():
+        return "ignore", f"the value of {name} repeats the name, so it is not a secret"
+    if KNOWN_SECRET.search(inner) or _high_entropy(inner):
+        return "detect", ""
+    if not (value[:1] in "\"'`") and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", inner):
+        return "ignore", f"the right-hand side of {name} is a name in the code, not a secret value"
+    if WORD_VALUE.fullmatch(inner) and not re.search(r"\d", inner):
+        if len(inner) >= 28 and _entropy(inner) >= 4.0:
+            return "detect", ""
+        return "ignore", f"the value of {name} is ordinary words, not a secret"
+    if re.fullmatch(r"(.)\1+", inner) or len(inner) < 12:
+        return "ignore", f"the value of {name} is too short and generic to be a secret"
+    if _high_entropy(inner):
+        return "detect", ""
+    return "ignore", f"the value of {name} does not contain a secret, so this line is not an attack path"
+
+
+def _entropy(value: str) -> float:
+    counts = Counter(value)
+    total = len(value)
+    if not total:
+        return 0.0
+    return -sum((count / total) * math.log2(count / total) for count in counts.values())
+
+
+def _high_entropy(value: str) -> bool:
+    if len(value) < 12 or any(ch.isspace() for ch in value):
         return False
-    weak_name = name.lower().endswith("_key") and not re.search(r"secret|password|token|credential|api|private|access", name, re.I)
-    if weak_name and not re.search(r"\d", inner):
+    classes = sum(bool(re.search(pattern, value)) for pattern in (r"[a-z]", r"[A-Z]", r"\d", r"[^A-Za-z0-9]"))
+    if classes < 2 and not re.fullmatch(r"[A-Za-z0-9+/=_\-]{24,}", value):
         return False
-    return True
+    return _entropy(value) >= 3.5
 
 
 def _observe(model, **observation) -> None:

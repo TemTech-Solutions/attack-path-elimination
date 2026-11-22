@@ -9,6 +9,7 @@ import yaml
 
 from pathfinder.baseline import rule_recommendation
 from pathfinder.model import RepoModel
+from pathfinder.universal import note_ignored_credential
 
 SECRET_RE = re.compile(r"secrets\.([A-Za-z0-9_]+)")
 AZURE_SECRET_RE = re.compile(r"\$\(([A-Z][A-Z0-9_]{2,})\)")
@@ -1135,24 +1136,51 @@ def analyze_ai(model: RepoModel, rel: str, text: str) -> None:
 
 
 def analyze_embedded_secret(model: RepoModel, rel: str, text: str) -> None:
-    if re.search(r"AKIA[0-9A-Z]{16}", text) or "BEGIN PRIVATE KEY" in text or "BEGIN RSA PRIVATE KEY" in text:
-        secret = model.node("secret", "Embedded repository credential", lane="credential", unique=True, file=rel)
-        model.observe(
-            rule="U02",
-            theme="credential",
-            title="Repository contains a static credential",
-            stage="credential",
-            node_id=secret,
-            file=rel,
-            line=1,
-            evidence="static credential material",
-            recommendation=rule_recommendation("U02"),
-            exposure="internal",
-            privilege="credential",
-            asset="credential",
-            exploitability="misconfiguration",
-            identity=False,
-        )
+    lines = text.splitlines()
+    seen = set()
+    for index, raw in enumerate(lines, start=1):
+        for match in re.finditer(r"(?:AKIA|ASIA)[0-9A-Z]{16}", raw):
+            token = match.group(0)
+            if token in seen:
+                continue
+            seen.add(token)
+            if "EXAMPLE" in token:
+                note_ignored_credential(
+                    model, rel, index, token[:4] + "…",
+                    "this is a documented example access key, not a secret value",
+                )
+                continue
+            shown = f"access key {token[:4]}…{token[-4:]}"
+            _record_embedded(model, rel, index, shown)
+        if any(marker in raw for marker in ("BEGIN PRIVATE KEY", "BEGIN RSA PRIVATE KEY", "BEGIN OPENSSH PRIVATE KEY")):
+            window = "\n".join(lines[index - 1:index + 6])
+            if re.search(r"example|placeholder|dummy|redacted", window, re.I):
+                note_ignored_credential(
+                    model, rel, index, "private key",
+                    "the key block is marked as an example, so it is not a secret value",
+                )
+                continue
+            _record_embedded(model, rel, index, "private key block")
+
+
+def _record_embedded(model: RepoModel, rel: str, line: int, evidence: str) -> None:
+    secret = model.node("secret", "Embedded repository credential", lane="credential", unique=True, file=rel, line=line)
+    model.observe(
+        rule="U02",
+        theme="credential",
+        title="Repository contains a secret value",
+        stage="credential",
+        node_id=secret,
+        file=rel,
+        line=line,
+        evidence=evidence,
+        recommendation=rule_recommendation("U02"),
+        exposure="internal",
+        privilege="credential",
+        asset="credential",
+        exploitability="misconfiguration",
+        identity=False,
+    )
 
 
 def _ai_node(model: RepoModel, rel: str, text: str) -> str:
