@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,13 +61,25 @@ CODE = {
 }
 
 
+STATE_NAME = "pathfinder-state.json"
+
+
 def analyze(target: Path) -> dict:
+    """Deep review, then validation, then the published result. One local run."""
+    model = review_repository(target)
+    validate_model(model)
+    return publish_model(model)
+
+
+def review_repository(target: Path) -> RepoModel:
+    """Walk the checkout. Validation is a later job."""
     root = Path(target).resolve()
     if not root.exists():
         raise FileNotFoundError(root)
     if root.is_file():
         root = root.parent
     model = RepoModel(root)
+    _say("Deep review")
     _say("Reviewing the repository against the OWASP Subtractive Hardening baseline")
     python_facts = []
     openapi_files = []
@@ -150,9 +163,24 @@ def analyze(target: Path) -> dict:
     known = _announce(model, known)
     adapt_repository(model)
     _announce(model, known)
+    _say(f"Deep review recorded {len(model.observations)} observation(s).")
+    return model
+
+
+def validate_model(model: RepoModel) -> RepoModel:
+    """Judge the observations from the deep review. A second call does not judge them again."""
+    if getattr(model, "baseline_validation", None):
+        _say("Validation already completed for this review.")
+        return model
     from pathfinder.harden import validate_baseline
 
+    _say("Validation")
     validate_baseline(model, _say)
+    return model
+
+
+def publish_model(model: RepoModel) -> dict:
+    """Turn a validated review into paths, findings, and the report payload."""
     apply_exceptions(model)
     paths = build_paths(model)
     suppressed = list(getattr(model, "suppressed", []) or [])
@@ -162,7 +190,7 @@ def analyze(target: Path) -> dict:
 
     packaged["install"] = integration_guide()
     try:
-        packaged["unused"] = find_unused(root)
+        packaged["unused"] = find_unused(model.root)
     except Exception as exc:
         packaged["unused"] = {
             "summary": {"files": 0, "symbols": 0, "removals": 0, "held": 0, "referenced": 0, "skipped": 0, "unparsed": 0, "omitted": 0, "error": f"{type(exc).__name__}: {exc}"},
@@ -176,7 +204,7 @@ def analyze(target: Path) -> dict:
         packaged.get("unused") or {},
         packaged.get("nodes") or [],
         packaged.get("observations") or [],
-        root,
+        model.root,
     )
     from pathfinder.exceptions import validate_published
     from pathfinder.query import attach_search
@@ -185,6 +213,48 @@ def analyze(target: Path) -> dict:
     validate_published(packaged)
     attach_reviews(packaged)
     return attach_search(packaged)
+
+
+def save_state(model: RepoModel, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "nodes": model.nodes,
+        "edges": model.edges,
+        "observations": model.observations,
+        "parse_errors": model.parse_errors,
+        "unique": [[kind, name, node_id] for (kind, name), node_id in model._unique.items()],
+        "ignored_credentials": list(getattr(model, "ignored_credentials", []) or []),
+        "adaptation": getattr(model, "adaptation", None),
+        "suppressed": list(getattr(model, "suppressed", []) or []),
+        "baseline_validation": getattr(model, "baseline_validation", None),
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def load_state(target: Path, path: Path) -> RepoModel:
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    root = Path(target).resolve()
+    if root.is_file():
+        root = root.parent
+    model = RepoModel(root)
+    model.nodes = payload.get("nodes") or {}
+    model.edges = payload.get("edges") or []
+    model.observations = payload.get("observations") or []
+    model.parse_errors = payload.get("parse_errors") or []
+    model._edge_seen = {(edge["source"], edge["target"], edge["kind"]) for edge in model.edges}
+    model._unique = {(kind, name): node_id for kind, name, node_id in payload.get("unique") or []}
+    model.ignored_credentials = payload.get("ignored_credentials") or []
+    model.adaptation = payload.get("adaptation")
+    model.suppressed = payload.get("suppressed") or []
+    model.baseline_validation = payload.get("baseline_validation")
+    return model
+
+
+def write_phase_record(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
 
 
 def _announce(model: RepoModel, known: set[str]) -> set[str]:

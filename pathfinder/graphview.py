@@ -121,9 +121,15 @@ def render_graph_html(result: dict) -> str:
         "paths": paths,
         "languages": languages,
         "adaptation": result.get("adaptation") or {},
+        "validation": _validation_counts(result),
     }
     encoded = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
     return template.replace("__PAYLOAD__", encoded)
+
+
+def _validation_counts(result: dict) -> dict:
+    validation = result.get("baseline_validation") or {}
+    return {"kept": validation.get("kept", 0), "rejected": validation.get("rejected", 0)}
 
 
 def render_graph_report(result: dict) -> str:

@@ -16,6 +16,7 @@ PUBLIC_SLUG = "TemTech-Solutions/attack-path-elimination"
 # .github/workflows/pin-action.yml rewrites this on each push to main.
 PUBLIC_REF = "1900173d160f2c376edbee0ba9019b39caeb62d6"
 CHECKOUT_REF = "11d5960a326750d5838078e36cf38b85af677262"  # actions/checkout v4.4.0
+DOWNLOAD_REF = "37930b1c2abaa49bbe596cd826c3c89aef350131"  # actions/download-artifact v7.0.0
 PUBLIC_URL = f"https://github.com/{PUBLIC_SLUG}"
 PUBLIC_GIT = f"{PUBLIC_URL}.git"
 PUBLIC_WORKFLOW = (
@@ -214,51 +215,62 @@ permissions:
   pull-requests: write
 
 jobs:
-  attack-paths:
+  deep-review:
+    name: Deep review
     runs-on: ubuntu-latest
     steps:
       - name: Checkout this repository
         uses: actions/checkout@{CHECKOUT_REF} # v4.4.0
 
-      - name: Deep scan
+      - name: Deep review
         uses: {action}
         with:
+          phase: review
           comment: "false"
           artifact: attack-path-review
 
-      - name: Scan summary
-        if: always()
-        shell: bash
-        run: |
-          if [ -f attack-paths-report/summary.md ]; then
-            cat attack-paths-report/summary.md
-          else
-            echo "The scan did not write a summary."
-          fi
-
-  exception-scan:
-    needs: attack-paths
+  validation:
+    name: Validation
+    needs: deep-review
     runs-on: ubuntu-latest
     steps:
       - name: Checkout this repository
         uses: actions/checkout@{CHECKOUT_REF} # v4.4.0
 
-      - name: Exception scan
+      - name: Download the deep review
+        uses: actions/download-artifact@{DOWNLOAD_REF} # v7.0.0
+        with:
+          name: attack-path-review
+          path: attack-paths-report
+
+      - name: Validate findings
         uses: {action}
         with:
+          phase: validate
+          comment: "false"
+          artifact: attack-path-validation
+
+  exception-scan:
+    name: Exception scan
+    needs: validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@{CHECKOUT_REF} # v4.4.0
+
+      - name: Download the validation
+        uses: actions/download-artifact@{DOWNLOAD_REF} # v7.0.0
+        with:
+          name: attack-path-validation
+          path: attack-paths-report
+
+      - name: Publish the report
+        uses: {action}
+        with:
+          phase: report
           exception_scan: "true"
           max_critical: "0"
           artifact: attack-path-report
-
-      - name: Scan summary
-        if: always()
-        shell: bash
-        run: |
-          if [ -f attack-paths-report/summary.md ]; then
-            cat attack-paths-report/summary.md
-          else
-            echo "The scan did not write a summary."
-          fi
 """
 
 
@@ -291,6 +303,7 @@ attack-paths:
       - attack-paths-report/report.html
       - attack-paths-report/graph.html
       - attack-paths-report/threat-model.html
+      - attack-paths-report/unused.html
       - attack-paths-report/graph-report.md
       - attack-paths-report/pr-comment.md
       - attack-paths-report/summary.md

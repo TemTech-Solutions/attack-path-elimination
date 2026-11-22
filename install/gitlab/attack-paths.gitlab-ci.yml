@@ -26,6 +26,7 @@ attack-paths:
       - attack-paths-report/report.html
       - attack-paths-report/graph.html
       - attack-paths-report/threat-model.html
+      - attack-paths-report/unused.html
       - attack-paths-report/graph-report.md
       - attack-paths-report/pr-comment.md
       - attack-paths-report/summary.md

@@ -85,6 +85,10 @@ def build_threat_model(result: dict) -> dict:
         "assets": assets,
         "threats": threats,
         "adaptation": result.get("adaptation") or {},
+        "validation": {
+            "kept": (result.get("baseline_validation") or {}).get("kept", 0),
+            "rejected": (result.get("baseline_validation") or {}).get("rejected", 0),
+        },
         "suppressed": [
             {
                 "fingerprint": item.get("fingerprint") or "",

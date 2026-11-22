@@ -66,6 +66,16 @@
     <p id="about"></p>
   </section>
   <section class="panel">
+    <h2>Review and validation</h2>
+    <p id="review"></p>
+    <ul id="decisions"></ul>
+  </section>
+  <section class="panel">
+    <h2>Critical issues</h2>
+    <p class="muted">Each line is the place to erase. Open the threat model for the effect and the exact change.</p>
+    <ul id="critical"></ul>
+  </section>
+  <section class="panel">
     <h2>What was found</h2>
     <p id="found"></p>
     <ul id="paths"></ul>
@@ -104,6 +114,8 @@ stats.forEach(([label, value]) => {
 });
 
 document.getElementById("about").textContent = whatItDoes(data);
+renderReview(data);
+renderCritical(data);
 
 const bands = { Critical: 0, High: 0, Medium: 0, Low: 0 };
 paths.forEach((path) => { if (bands[path.band] !== undefined) bands[path.band] += 1; });
@@ -138,6 +150,70 @@ if (ignored.length) {
     li.textContent = (item.file || "") + ":" + (item.line || "") + " " + (item.name || "credential") + ". " + (item.reason || "");
     root.appendChild(li);
   });
+}
+
+function renderReview(snapshot) {
+  const validation = snapshot.baseline_validation || {};
+  const kept = validation.kept || 0;
+  const rejected = validation.rejected || 0;
+  document.getElementById("review").textContent =
+    "Deep review walked this checkout against the OWASP Subtractive Hardening baseline. " +
+    "Validation kept " + kept + " and rejected " + rejected + ". Deletion stays ahead of constraint.";
+  const list = document.getElementById("decisions");
+  (validation.decisions || []).forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item.log || "";
+    list.appendChild(li);
+  });
+}
+
+function renderCritical(snapshot) {
+  const list = document.getElementById("critical");
+  const rows = criticalRows(snapshot);
+  if (!rows.length) {
+    const item = document.createElement("li");
+    item.textContent = "No critical issue stayed in this scan.";
+    list.appendChild(item);
+    return;
+  }
+  rows.forEach((row) => {
+    const li = document.createElement("li");
+    const place = row.file ? row.file + (row.line ? ":" + row.line : "") : "location not recorded";
+    li.appendChild(document.createTextNode("Critical " + (row.score || "") + " · " + place + " · " + (row.title || "Finding") + ". "));
+    const link = document.createElement("a");
+    link.href = "threat-model.html#" + encodeURIComponent(placeKey(row));
+    link.textContent = "Open in the threat model";
+    li.appendChild(link);
+    list.appendChild(li);
+  });
+}
+
+function criticalRows(snapshot) {
+  const rows = [];
+  const seen = new Set();
+  (snapshot.findings || []).forEach((finding) => {
+    if (finding.band !== "Critical") return;
+    const key = placeKey(finding);
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push(finding);
+  });
+  (snapshot.paths || []).forEach((path) => {
+    if (path.band !== "Critical") return;
+    const hop = (path.hops || []).find((item) => item.file) || {};
+    const key = placeKey(hop);
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push({
+      band: "Critical",
+      score: path.score,
+      title: String(path.category || "Critical path").replace(/_/g, " "),
+      file: hop.file,
+      line: hop.line,
+      rule: hop.rule || ""
+    });
+  });
+  return rows;
 }
 
 function pathRow(path) {

@@ -80,6 +80,7 @@
 <body>
 <header>
   <h1 id="title">Threats to eliminate</h1>
+  <p class="muted" id="record"></p>
   <p class="muted"><a href="report.html">Summary</a> · <a href="graph.html">Graph</a> · <a href="unused.html">Unused code</a></p>
   <div class="lenses" id="lenses"></div>
   <div class="groups" id="groups"></div>
@@ -90,6 +91,10 @@
 <script id="data" type="application/json">__PAYLOAD__</script>
 <script>
 const model = JSON.parse(document.getElementById("data").textContent);
+const validation = model.validation || {};
+document.getElementById("record").textContent =
+  "Deep review and validation are in the summary. Kept " + (validation.kept || 0) +
+  ". Rejected " + (validation.rejected || 0) + ". Critical issues, with file and line, are on report.html.";
 document.getElementById("title").textContent = model.repository + " threat model";
 
 const LENSES = [

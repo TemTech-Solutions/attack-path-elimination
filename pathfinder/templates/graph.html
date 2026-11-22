@@ -77,6 +77,7 @@
   <select id="paths"></select>
   <span class="legend"><span><i class="swatch"></i>EXTRACTED</span><span><i class="swatch inferred"></i>INFERRED</span></span>
   <span id="langs" class="muted"></span>
+  <p id="record" class="muted"></p>
   <a href="report.html">Summary</a>
   <a href="threat-model.html">Threat model</a>
   <a href="unused.html">Unused code</a>
@@ -89,6 +90,10 @@
 <script id="data" type="application/json">__PAYLOAD__</script>
 <script>
 const data = JSON.parse(document.getElementById("data").textContent);
+const validation = data.validation || {};
+document.getElementById("record").textContent =
+  "Deep review and validation are in the summary. Kept " + (validation.kept || 0) +
+  ". Rejected " + (validation.rejected || 0) + ". Critical issues, with file and line, are on report.html.";
 const kindColor = {
   endpoint: "#7dd3fc",
   function: "#c4b5fd",

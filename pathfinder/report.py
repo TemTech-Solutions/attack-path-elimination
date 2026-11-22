@@ -17,8 +17,13 @@ def render_html(result: dict) -> str:
 def render_unused_html(result: dict) -> str:
     template_path = Path(__file__).parent / "templates" / "unused.html"
     template = template_path.read_text(encoding="utf-8")
+    validation = result.get("baseline_validation") or {}
     payload = json.dumps(
-        {"repository": result.get("repository") or "", "unused": result.get("unused") or {}},
+        {
+            "repository": result.get("repository") or "",
+            "unused": result.get("unused") or {},
+            "validation": {"kept": validation.get("kept", 0), "rejected": validation.get("rejected", 0)},
+        },
         ensure_ascii=False,
     ).replace("<", "\\u003c")
     return template.replace("__PAYLOAD__", payload)
@@ -35,17 +40,20 @@ def runtime_summary(result: dict) -> str:
     removals = int(((result.get("unused") or {}).get("summary") or {}).get("removals") or 0)
     skipped = _exceptions_skipped(result)
     lines = ["## Attack path summary", ""]
-    lines.extend(_validation_lines(result))
-    lines.extend(["What was found", ""])
+    lines.extend(["Critical issues", ""])
+    issues = critical_issues(result)
+    if issues:
+        for item in issues:
+            place = f"{item['file']}:{item['line']}" if item.get("file") else "location not recorded"
+            lines.append(f"- Critical {item.get('score') or ''} · {place} · {item.get('title') or 'Finding'}".replace("  ", " "))
+    else:
+        lines.append("- No critical issue stayed in this scan.")
+    lines.extend(["", "What was found", ""])
     lines.append(
         f"{len(critical)} critical path(s), {len(high)} high path(s), and {medium} medium path(s). "
         f"{findings} finding(s) stayed in the report. "
         f"{removals} unused private symbol(s) can be removed."
     )
-    lead = (critical or high or paths)
-    if lead:
-        lines.append("")
-        lines.append(lead[0].get("narrative") or "")
     lines.append("")
     lines.append(f"Exceptions skipped: {skipped}")
     ignored = list(result.get("ignored_credentials") or [])
@@ -62,6 +70,46 @@ def runtime_summary(result: dict) -> str:
     lines.append("report.html, graph.html, threat-model.html, unused.html")
     lines.append("")
     return "\n".join(lines)
+
+
+def critical_issues(result: dict) -> list[dict]:
+    """Critical findings, then any critical path whose line is not already listed."""
+    rows = []
+    seen = set()
+    for finding in result.get("findings") or []:
+        if finding.get("band") != "Critical":
+            continue
+        key = (finding.get("rule") or "", finding.get("file") or "", finding.get("line"))
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "score": finding.get("score") or "",
+                "file": finding.get("file") or "",
+                "line": finding.get("line") or "",
+                "title": finding.get("title") or finding.get("rule") or "Finding",
+                "rule": finding.get("rule") or "",
+            }
+        )
+    for path in result.get("paths") or []:
+        if path.get("band") != "Critical":
+            continue
+        hop = next((item for item in path.get("hops") or [] if item.get("file")), {})
+        key = (hop.get("rule") or "", hop.get("file") or "", hop.get("line"))
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "score": path.get("score") or "",
+                "file": hop.get("file") or "",
+                "line": hop.get("line") or "",
+                "title": str(path.get("category") or "Critical path").replace("_", " "),
+                "rule": hop.get("rule") or "",
+            }
+        )
+    return rows
 
 
 def _validation_lines(result: dict) -> list[str]:

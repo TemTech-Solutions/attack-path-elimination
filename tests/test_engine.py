@@ -161,6 +161,8 @@ def test_html_and_comment_carry_the_chain(payment_repo: Path):
     result = analyze(payment_repo)
     html = render_html(result)
     assert "What this application does" in html
+    assert "Critical issues" in html
+    assert "Review and validation" in html
     assert "What was found" in html
     assert "POST /api/payment" in html
     assert "Why this is first" not in html
@@ -288,12 +290,17 @@ def test_install_hook_writes_into_the_other_repo(tmp_path: Path):
     assert text == published
     assert destination == tmp_path / ".github" / "workflows" / "attack-paths.yml"
     assert f"uses: TemTech-Solutions/attack-path-elimination@{PUBLIC_REF}" in text
+    assert "deep-review:" in text
+    assert "validation:" in text
     assert "exception-scan:" in text
+    assert "phase: review" in text
+    assert "phase: validate" in text
+    assert "phase: report" in text
     assert 'exception_scan: "true"' in text
     assert 'max_critical: "0"' in text
-    assert "Scan summary" in text
-    assert "attack-paths-report/summary.md" in text
     assert "attack-path-review" in text
+    assert "attack-path-validation" in text
+    assert "attack-path-report" in text
     assert "https://github.com/TemTech-Solutions/attack-path-elimination" in text
     assert "actions/checkout@11d5960a326750d5838078e36cf38b85af677262" in text
     assert "pull_request_target" not in text

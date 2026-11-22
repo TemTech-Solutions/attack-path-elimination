@@ -50,6 +50,12 @@ def main(argv: list[str] | None = None) -> int:
             default=None,
             help="Fail when high paths exceed this count. Omit it to report without failing",
         )
+        scan_parser.add_argument(
+            "--phase",
+            choices=("review", "validate", "report"),
+            default="",
+            help="Run one CI job: review, validate, or report. Omit it to run all three in order",
+        )
 
     comment_parser = sub.add_parser("comment", help="Print a pull-request comment for a repository")
     comment_parser.add_argument("target", type=Path)
@@ -141,6 +147,7 @@ def _dispatch(args) -> int:
             exception_scan_enabled=args.exception_scan,
             max_critical=args.max_critical,
             max_high=args.max_high,
+            phase=args.phase,
         )
     if args.command == "comment":
         _print(pr_comment(analyze(args.target)))
@@ -261,7 +268,10 @@ def _run_analyze(
     exception_scan_enabled: bool = False,
     max_critical: int | None = None,
     max_high: int | None = None,
+    phase: str = "",
 ) -> int:
+    if phase in {"review", "validate", "report"}:
+        return _run_phase(target, out, phase, exception_scan_enabled, max_critical, max_high)
     result = apply_history(analyze(target), out / "history.json")
     if exception_scan_enabled:
         from pathfinder.exceptions import exception_scan
@@ -277,6 +287,78 @@ def _run_analyze(
     _print(f"HTML report: {paths['html']}")
     _print(f"Graph: {paths['graph']}")
     _print(f"Threat model: {paths['threat']}")
+    return _gate(result, max_critical, max_high)
+
+
+def _run_phase(
+    target: Path,
+    out: Path,
+    phase: str,
+    exception_scan_enabled: bool,
+    max_critical: int | None,
+    max_high: int | None,
+) -> int:
+    """One job. Review writes state, validation judges it, report publishes the artifact."""
+    from pathfinder.analyze import STATE_NAME, load_state, review_repository, save_state, validate_model, write_phase_record
+
+    state = out / STATE_NAME
+    record = out / "phase-record.md"
+    if phase == "review":
+        model = review_repository(target)
+        save_state(model, state)
+        write_phase_record(
+            record,
+            "\n".join(
+                [
+                    "## Deep review",
+                    "",
+                    "Reviewed the repository against the OWASP Subtractive Hardening baseline.",
+                    f"Recorded {len(model.observations)} observation(s).",
+                    "Validation is the next job.",
+                    "",
+                ]
+            ),
+        )
+        _print(f"Deep review state: {state}")
+        return 0
+    if phase == "validate":
+        model = load_state(target, state)
+        validate_model(model)
+        save_state(model, state)
+        validation = model.baseline_validation or {}
+        write_phase_record(
+            record,
+            "\n".join(
+                [
+                    "## Validation",
+                    "",
+                    f"Kept {validation.get('kept', 0)}. Rejected {validation.get('rejected', 0)}. Deletion stays ahead of constraint.",
+                    "Each kept and rejected line is in this job log.",
+                    "The report job writes the critical issues, with file and line, into the artifact.",
+                    "",
+                ]
+            ),
+        )
+        _print(f"Validation state: {state}")
+        return 0
+    model = load_state(target, state)
+    if not model.baseline_validation:
+        _print("Validation is missing from the review state. Run the validation job before the report.")
+        return 2
+    from pathfinder.analyze import publish_model
+
+    result = apply_history(publish_model(model), out / "history.json")
+    if exception_scan_enabled:
+        from pathfinder.exceptions import exception_scan
+        from pathfinder.threatmodel import attach_reviews
+
+        exception_scan(result)
+        attach_reviews(result)
+    paths = write_outputs(result, out)
+    _print(f"HTML report: {paths['html']}")
+    _print(f"Graph: {paths['graph']}")
+    _print(f"Threat model: {paths['threat']}")
+    _print(f"Unused code: {paths['unused']}")
     return _gate(result, max_critical, max_high)
 
 
