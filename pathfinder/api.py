@@ -21,7 +21,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from pathfinder.analyze import analyze
-from pathfinder.report import pr_comment, render_html, render_threat_html
+from pathfinder.report import pr_comment, render_html, render_threat_html, render_unused_html
+from pathfinder.graphview import render_graph_html
 
 ALLOWED_HOSTS = {"github.com", "gitlab.com", "dev.azure.com"}
 app = FastAPI(title="Attack path elimination", version="0.1.0")
@@ -63,10 +64,24 @@ def paths():
 
 @app.get("/graph.html", response_class=HTMLResponse)
 def graph_page():
-    page = Path(os.environ.get("PATHFINDER_REPORT", "out")) / "graph.html"
+    return _page("graph.html", "No graph yet. Run analyze first.")
+
+
+@app.get("/threat-model.html", response_class=HTMLResponse)
+def threat_page():
+    return _page("threat-model.html", "No threat model yet. Run analyze first.")
+
+
+@app.get("/unused.html", response_class=HTMLResponse)
+def unused_page():
+    return _page("unused.html", "No unused-code report yet. Run analyze first.")
+
+
+def _page(name: str, missing: str):
+    page = Path(os.environ.get("PATHFINDER_REPORT", "out")) / name
     if page.exists():
         return HTMLResponse(page.read_text(encoding="utf-8"))
-    raise HTTPException(404, "No graph yet. Run analyze first.")
+    raise HTTPException(404, missing)
 
 
 @app.get("/api/graph")
@@ -133,7 +148,9 @@ def _remember(result: dict) -> None:
     report_dir = Path(os.environ.get("PATHFINDER_REPORT", "out"))
     report_dir.mkdir(parents=True, exist_ok=True)
     (report_dir / "report.html").write_text(render_html(result), encoding="utf-8")
+    (report_dir / "graph.html").write_text(render_graph_html(result), encoding="utf-8")
     (report_dir / "threat-model.html").write_text(render_threat_html(result), encoding="utf-8")
+    (report_dir / "unused.html").write_text(render_unused_html(result), encoding="utf-8")
 
 
 def _resolve_target(target: str) -> Path:

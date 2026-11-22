@@ -4,7 +4,7 @@ import pytest
 
 from pathfinder.analyze import analyze
 from pathfinder.graphview import render_graph_html
-from pathfinder.report import pr_comment, render_html
+from pathfinder.report import pr_comment, render_html, render_unused_html
 from pathfinder.threatmodel import render_threat_html
 from pathfinder.scoring import score_path
 
@@ -160,18 +160,12 @@ def test_missing_control_rejects_an_authorized_walk():
 def test_html_and_comment_carry_the_chain(payment_repo: Path):
     result = analyze(payment_repo)
     html = render_html(result)
-    narrative = next(path["narrative"] for path in result["paths"] if path["category"] == "cloud_escalation")
-    assert narrative in html
-    assert "Risk score" in html
-    assert "Findings on this path" in html
-    assert "For the exception record" in html
-    assert "An attacker can use" in html
+    assert "What this application does" in html
+    assert "What was found" in html
+    assert "POST /api/payment" in html
     assert "Why this is first" not in html
     assert result["validation"]["kept"] >= 1
-    assert "pathfinder-exceptions.yml" in html
-    assert "exceptions:" in html
-    assert "A blank reason does not hide this finding." in html
-    assert "pathfinder: false-positive:" in html
+    assert "unused.html" in html
     comment = pr_comment(result)
     assert "Auth bypass" in comment
     from pathfinder.report import runtime_summary
@@ -695,7 +689,7 @@ def test_unused_code_recommends_only_unreferenced_private_symbols(tmp_path: Path
     island = next(item for item in result["unused"]["removals"] if item["name"] == "_island_helper")
     assert "unused private code" in island["why"]
     assert "_island" in island["why"]
-    page = render_html(result)
+    page = render_unused_html(result)
     assert "How we know" in page
     assert "Unused code in this repository" in page
     assert "What was found" in page

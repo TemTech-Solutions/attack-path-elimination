@@ -77,8 +77,9 @@
   <select id="paths"></select>
   <span class="legend"><span><i class="swatch"></i>EXTRACTED</span><span><i class="swatch inferred"></i>INFERRED</span></span>
   <span id="langs" class="muted"></span>
-  <a href="report.html">Ranked paths</a>
+  <a href="report.html">Summary</a>
   <a href="threat-model.html">Threat model</a>
+  <a href="unused.html">Unused code</a>
 </header>
 <main>
   <section id="issues"></section>
@@ -465,10 +466,9 @@ function pathCard(path, highlight, seen) {
   title.appendChild(document.createTextNode(" · " + String(path.category || "").replace(/_/g, " ")));
   card.appendChild(title);
   const diagnosis = diagnosisText(path);
-  if (!already(seen, diagnosis)) {
-    add(card, "h3", "Diagnosis");
-    add(card, "p", diagnosis);
-  }
+  const described = (path.hops || []).some((hop) => hop.access);
+  add(card, "h3", "Diagnosis");
+  if (!described && !already(seen, diagnosis)) add(card, "p", diagnosis);
   if (path.explanation && !already(seen, path.explanation)) {
     add(card, "p", path.explanation);
     remember(seen, path.explanation);
@@ -480,12 +480,39 @@ function pathCard(path, highlight, seen) {
       add(card, "p", link.band + " " + link.score + " · " + String(link.category).replace(/_/g, " "));
     });
   }
-  remember(seen, diagnosis);
+  if (!described) remember(seen, diagnosis);
   const places = new Set();
   const hopRows = [];
   (path.hops || []).forEach((hop) => {
     const place = hop.file ? hop.file + (hop.line ? ":" + hop.line : "") : "";
     if (place) places.add(place);
+    if (hop.access || hop.recommendation) {
+      if (place) {
+        const where = document.createElement("p");
+        const strong = document.createElement("strong");
+        strong.textContent = place;
+        where.appendChild(strong);
+        if (hop.label) where.appendChild(document.createTextNode(" · " + hop.label));
+        card.appendChild(where);
+      }
+      if (hop.evidence && !containsText(hop.access || "", hop.evidence)) {
+        const line = document.createElement("p");
+        const strong = document.createElement("strong");
+        strong.textContent = "Line:";
+        line.appendChild(strong);
+        line.appendChild(document.createTextNode(" " + hop.evidence));
+        card.appendChild(line);
+      }
+      if (hop.access && !already(seen, hop.access)) add(card, "p", hop.access);
+      if (hop.effect && !already(seen, hop.effect)) labeled(card, "Effect:", hop.effect);
+      if (hop.database && !already(seen, hop.database)) labeled(card, "Database:", hop.database);
+      if (hop.recommendation && !already(seen, hop.recommendation)) labeled(card, "Next step:", hop.recommendation);
+      remember(seen, hop.access);
+      remember(seen, hop.effect);
+      remember(seen, hop.recommendation);
+      remember(seen, hop.evidence);
+      return;
+    }
     const evidence = hop.evidence && !containsText(diagnosis, hop.evidence) ? hop.evidence : "";
     const parts = [hop.label, hop.rule, place, evidence].filter((part) => part && !containsText(diagnosis, part)).join(" · ");
     if (parts && !already(seen, parts) && !hopRows.some((row) => row.parts === parts)) hopRows.push({ hop, parts });
@@ -514,7 +541,7 @@ function pathCard(path, highlight, seen) {
     });
   }
   (path.edges || []).forEach((edge) => remember(seen, edgeKey(edge)));
-  const actions = uniqueActions(path.next_steps || []).filter((step) => !alreadyAction(seen, step.action));
+  const actions = described ? [] : uniqueActions(path.next_steps || []).filter((step) => !alreadyAction(seen, step.action));
   if (actions.length) {
     add(card, "h3", "Next step");
     actions.forEach((step) => {
@@ -527,7 +554,7 @@ function pathCard(path, highlight, seen) {
       remember(seen, step.action);
     });
   }
-  const extraRemove = (path.remove || []).filter((text) => !alreadyAction(seen, text) && !actions.some((step) => sameAction(step.action, text)));
+  const extraRemove = described ? [] : (path.remove || []).filter((text) => !alreadyAction(seen, text) && !actions.some((step) => sameAction(step.action, text)));
   if (extraRemove.length) {
     add(card, "h3", "What to remove");
     extraRemove.forEach((text) => {

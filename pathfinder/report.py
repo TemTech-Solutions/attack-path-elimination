@@ -14,6 +14,16 @@ def render_html(result: dict) -> str:
     return template.replace("__PAYLOAD__", payload)
 
 
+def render_unused_html(result: dict) -> str:
+    template_path = Path(__file__).parent / "templates" / "unused.html"
+    template = template_path.read_text(encoding="utf-8")
+    payload = json.dumps(
+        {"repository": result.get("repository") or "", "unused": result.get("unused") or {}},
+        ensure_ascii=False,
+    ).replace("<", "\\u003c")
+    return template.replace("__PAYLOAD__", payload)
+
+
 def runtime_summary(result: dict) -> str:
     """Short result for the CI log, before the HTML reports."""
     scorecard = result.get("scorecard") or {}
@@ -49,7 +59,7 @@ def runtime_summary(result: dict) -> str:
         if extra > 0:
             lines.append(f"- {extra} more ignored credential line(s) were printed during analysis.")
     lines.append("")
-    lines.append("report.html, graph.html, threat-model.html")
+    lines.append("report.html, graph.html, threat-model.html, unused.html")
     lines.append("")
     return "\n".join(lines)
 
@@ -382,6 +392,7 @@ def write_outputs(result: dict, directory: Path) -> dict[str, Path]:
     html_path = directory / "report.html"
     graph_path = directory / "graph.html"
     threat_path = directory / "threat-model.html"
+    unused_path = directory / "unused.html"
     report_path = directory / "graph-report.md"
     json_path = directory / "graph.json"
     comment_path = directory / "pr-comment.md"
@@ -390,6 +401,7 @@ def write_outputs(result: dict, directory: Path) -> dict[str, Path]:
     html_path.write_text(render_html(result), encoding="utf-8")
     graph_path.write_text(render_graph_html(result), encoding="utf-8")
     threat_path.write_text(render_threat_html(result), encoding="utf-8")
+    unused_path.write_text(render_unused_html(result), encoding="utf-8")
     report_path.write_text(render_graph_report(result), encoding="utf-8")
     json_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     comment_path.write_text(pr_comment(result), encoding="utf-8")
@@ -399,6 +411,7 @@ def write_outputs(result: dict, directory: Path) -> dict[str, Path]:
         "html": html_path,
         "graph": graph_path,
         "threat": threat_path,
+        "unused": unused_path,
         "report": report_path,
         "json": json_path,
         "comment": comment_path,

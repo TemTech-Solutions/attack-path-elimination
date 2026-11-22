@@ -80,7 +80,7 @@
 <body>
 <header>
   <h1 id="title">Threats to eliminate</h1>
-  <p class="muted"><a href="report.html">Ranked paths</a> · <a href="graph.html">Graph</a></p>
+  <p class="muted"><a href="report.html">Summary</a> · <a href="graph.html">Graph</a> · <a href="unused.html">Unused code</a></p>
   <div class="lenses" id="lenses"></div>
   <div class="groups" id="groups"></div>
 </header>
@@ -212,21 +212,49 @@ function card(threat, index) {
   el.appendChild(title);
   if (openId === id) {
     el.id = "open-threat";
-    if (threat.access) add(el, "p", threat.access);
-    labeled(el, "Foothold:", threat.foothold);
-    labeled(el, "Connected attack paths:", threat.connected);
-    labeled(el, "Effect:", threat.effect || "");
-    labeled(el, "Database:", threat.database);
-    labeled(el, "Next step:", threat.recommendation);
+    const hops = threat.hops || [];
+    const described = hops.filter((hop) => hop.access || hop.evidence || hop.file);
+    if (described.length) described.forEach((hop, index) => el.appendChild(issueBlock(hop, threat, index === 0)));
+    else el.appendChild(issueBlock({}, threat, true));
     el.appendChild(detail(threat));
   }
   return el;
 }
 
+function issueBlock(hop, threat, first) {
+  const box = document.createElement("div");
+  const place = hop.file ? hop.file + (hop.line ? ":" + hop.line : "") : "";
+  if (place) {
+    const where = document.createElement("p");
+    const strong = document.createElement("strong");
+    strong.textContent = place;
+    where.appendChild(strong);
+    if (hop.label) where.appendChild(document.createTextNode(" · " + hop.label));
+    box.appendChild(where);
+  }
+  const access = hop.access || (first ? threat.access : "") || "";
+  if (access) add(box, "p", access);
+  if (hop.evidence) {
+    const line = document.createElement("p");
+    const strong = document.createElement("strong");
+    strong.textContent = "Line:";
+    line.appendChild(strong);
+    line.appendChild(document.createTextNode(" " + hop.evidence));
+    box.appendChild(line);
+  }
+  if (first) {
+    labeled(box, "Foothold:", hop.foothold || threat.foothold);
+    labeled(box, "Connected attack paths:", hop.connected || threat.connected);
+  }
+  labeled(box, "Effect:", hop.effect || (first ? threat.effect : "") || "");
+  labeled(box, "Database:", hop.database || (first ? threat.database : ""));
+  labeled(box, "Next step:", hop.recommendation || (first ? threat.recommendation : ""));
+  return box;
+}
+
 function detail(threat) {
   const box = document.createElement("div");
   box.className = "detail";
-  add(box, "p", threat.narrative || "");
   const dread = threat.dread || {};
   add(box, "p", threat.dread_text || ("DREAD · damage " + show(dread.asset) + " · reproducibility " + (threat.reachability === "Local signal" ? "local" : "walk is in the files") + " · exploitability " + show(dread.exploitability) + " · affected users " + show(dread.exposure) + " · discoverability " + (threat.reachability === "Reachable from an entry" ? "entry is exposed" : "not an exposed entry")));
   if ((threat.stride || []).length) add(box, "p", "STRIDE · " + threat.stride.join(", "));
@@ -246,16 +274,6 @@ function detail(threat) {
     threat.hops.forEach((hop) => box.appendChild(exceptionRecord(hop)));
   } else {
     box.appendChild(exceptionRecord({ file: "", rule: "", line: "", evidence: threat.narrative || "" }));
-  }
-  if ((threat.remove || []).length > 1) {
-    add(box, "p", "What to remove");
-    const list = document.createElement("ul");
-    threat.remove.forEach((text) => {
-      const li = document.createElement("li");
-      li.textContent = text;
-      list.appendChild(li);
-    });
-    box.appendChild(list);
   }
   return box;
 }

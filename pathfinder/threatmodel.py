@@ -263,8 +263,25 @@ def _review(item: dict, path: dict, result: dict) -> dict:
         )
     band = item["band"] or "Unscored"
     primary = next((hop for hop in hops if hop.get("evidence") or hop.get("file")), hops[0] if hops else {})
-    others = [hop.get("label") for hop in hops if hop.get("label") and hop is not primary]
-    explained = _explain(primary, reachability, band, item["score"], level, others)
+    explained = {}
+    painted = []
+    for hop in hops:
+        if not hop.get("evidence") and not hop.get("file"):
+            painted.append(dict(hop))
+            continue
+        others = [other.get("label") for other in hops if other is not hop and other.get("label")]
+        reading = _explain(hop, reachability, band, item["score"], level, others)
+        copy = dict(hop)
+        for key in ("access", "foothold", "connected", "effect", "recommendation", "database"):
+            if reading.get(key):
+                copy[key] = reading[key]
+        painted.append(copy)
+        if hop is primary:
+            explained = reading
+    if painted:
+        item["hops"] = painted
+    if not explained:
+        explained = _explain(primary, reachability, band, item["score"], level, [])
     reviewed = {
         "severity": band,
         "reachability": reachability,

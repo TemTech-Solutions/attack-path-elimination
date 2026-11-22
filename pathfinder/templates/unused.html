@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Unused code</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0c1222;
+    --panel: #141c2f;
+    --line: #27344d;
+    --text: #e7eefc;
+    --muted: #93a0b8;
+    --accent: #7dd3fc;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.55 "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  header, main { padding: 20px 24px; }
+  main { max-width: 980px; margin: 0 auto; }
+  h1 { margin: 0 0 8px; font-size: 26px; }
+  h2, h3 { margin: 0 0 8px; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); }
+  .links { display: flex; gap: 12px; margin-top: 8px; }
+  .outcomes { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+  .outcome, .unused-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin: 0 0 10px;
+  }
+  .outcome { min-width: 160px; }
+  .count { font-size: 22px; font-weight: 700; }
+  .qa { display: grid; grid-template-columns: 180px 1fr; gap: 4px 12px; margin: 8px 0 0; }
+  .qa dt { color: var(--muted); }
+  .qa dd { margin: 0; }
+  pre { white-space: pre-wrap; background: #0c1222; border-radius: 8px; padding: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Unused code in this repository</h1>
+  <p class="muted" id="subtitle"></p>
+  <p class="links"><a href="report.html">Summary</a> · <a href="threat-model.html">Threat model</a> · <a href="graph.html">Graph</a></p>
+</header>
+<main>
+  <div class="outcomes" id="unused-outcomes"></div>
+  <div id="unused-list"></div>
+</main>
+<script id="data" type="application/json">__PAYLOAD__</script>
+<script>
+const data = JSON.parse(document.getElementById("data").textContent);
+document.getElementById("subtitle").textContent = (data.repository || "Repository") + ". Private symbols nothing else calls.";
+renderUnused();
+
+function renderUnused() {
+  const unused = data.unused || {};
+  const summary = unused.summary || {};
+  const removals = unused.removals || [];
+  const held = unused.held || [];
+  const outcomes = document.getElementById("unused-outcomes");
+  outcomes.appendChild(outcomeCard("Remove", removals.length, removals.length ? "Not called." : "None."));
+  outcomes.appendChild(outcomeCard("Leave in place", summary.held || 0, "Public or exported."));
+  const skipped = summary.skipped || 0;
+  outcomes.appendChild(outcomeCard("Already in use", summary.referenced || 0, "Called." + (skipped ? " " + skipped + " entry names kept." : "")));
+  const list = document.getElementById("unused-list");
+  if (removals.length) addText(list, "h3", "Recommended removals");
+  const grouped = new Map();
+  removals.forEach((item) => {
+    const file = item.file || "(unknown file)";
+    if (!grouped.has(file)) grouped.set(file, []);
+    grouped.get(file).push(item);
+  });
+  grouped.forEach((items, file) => {
+    const group = document.createElement("section");
+    addText(group, "h3", file + " · " + items.length + (items.length === 1 ? " removal" : " removals"));
+    items.forEach((item) => group.appendChild(answerCard(item)));
+    list.appendChild(group);
+  });
+  const shownHeld = held.slice(0, 12);
+  if (shownHeld.length) addText(list, "h3", "Not recommended for removal");
+  shownHeld.forEach((item) => list.appendChild(answerCard(item)));
+  const more = (summary.held || 0) - shownHeld.length;
+  if (more > 0) addText(list, "p", more + " more public symbols are counted above and left in the repository.");
+  if (summary.omitted) addText(list, "p", summary.omitted + " unused symbol(s) were omitted by a recorded exception.");
+}
+
+function answerCard(item) {
+  const card = document.createElement("article");
+  card.className = "unused-card";
+  addText(card, "h3", (item.name || "Symbol") + " · line " + (item.line || ""));
+  addText(card, "p", [item.language, item.kind, item.confidence].filter(Boolean).join(" · "));
+  const list = document.createElement("dl");
+  list.className = "qa";
+  [
+    ["What was found", item.what],
+    ["How it affects the repo", item.effect],
+    ["Architecture", item.architecture],
+    ["Database", item.database],
+    ["How we know", item.why],
+    ["Next step", item.next]
+  ].forEach(([label, value]) => {
+    if (!value) return;
+    addText(list, "dt", label);
+    addText(list, "dd", value);
+  });
+  card.appendChild(list);
+  if (item.window) addText(card, "pre", item.window);
+  else if (item.evidence) addText(card, "pre", item.evidence);
+  return card;
+}
+
+function outcomeCard(title, count, body) {
+  const card = document.createElement("article");
+  card.className = "outcome";
+  addText(card, "h3", title);
+  const number = document.createElement("div");
+  number.className = "count";
+  number.textContent = String(count);
+  card.appendChild(number);
+  addText(card, "p", body);
+  return card;
+}
+
+function addText(parent, tag, text) {
+  const el = document.createElement(tag);
+  if (tag === "p") el.className = "muted";
+  el.textContent = text;
+  parent.appendChild(el);
+  return el;
+}
+</script>
+</body>
+</html>

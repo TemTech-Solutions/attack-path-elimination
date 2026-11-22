@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Attack paths</title>
+<title>Attack path summary</title>
 <style>
   :root {
     color-scheme: dark;
@@ -12,900 +12,207 @@
     --line: #27344d;
     --text: #e7eefc;
     --muted: #93a0b8;
+    --accent: #7dd3fc;
     --critical: #fb7185;
     --high: #fb923c;
     --medium: #facc15;
     --low: #4ade80;
-    --accent: #7dd3fc;
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font: 16px/1.55 "Segoe UI", system-ui, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-  }
+  body { margin: 0; font: 16px/1.55 "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); }
   header, main { padding: 20px 24px; }
-  main { max-width: 1120px; margin: 0 auto; }
+  main { max-width: 980px; margin: 0 auto; }
   header { border-bottom: 1px solid var(--line); }
-  h1 { margin: 0 0 6px; font-size: 22px; }
+  h1 { margin: 0 0 8px; font-size: 26px; }
+  h2 { margin: 0 0 8px; font-size: 18px; }
+  a { color: var(--accent); }
   .muted { color: var(--muted); }
-  .stats, .factors { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
-  .stat, .factor {
-    background: var(--panel);
+  .links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .links a {
+    display: inline-block;
+    padding: 8px 12px;
     border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 10px 12px;
-    min-width: 140px;
-  }
-  .stat b, .factor b { display: block; font-size: 20px; }
-  .banner {
-    margin-top: 16px;
-    padding: 14px 16px;
-    border-radius: 12px;
-    background: #1a2744;
-    border: 1px solid #34517a;
-  }
-  .layout { display: grid; grid-template-columns: minmax(0, 280px) minmax(0, 1fr) minmax(0, 320px); gap: 16px; }
-  @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
-  .panel {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 12px;
-    min-height: 240px;
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  .start { min-height: 0; margin-bottom: 16px; }
-  .action {
-    width: 100%;
-    text-align: left;
-    color: inherit;
+    border-radius: 999px;
+    text-decoration: none;
     background: #10192d;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 10px 12px;
-    margin-top: 8px;
-    cursor: pointer;
-    font: inherit;
   }
-  .action:hover { border-color: var(--accent); }
-  .action-line { color: var(--accent); margin-top: 4px; }
-  .path {
-    width: 100%;
-    text-align: left;
-    color: inherit;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    padding: 8px;
-    cursor: pointer;
-    margin-bottom: 6px;
-  }
-  .path.active, .path:hover { border-color: var(--line); background: #1c2740; }
-  .band { font-weight: 700; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 120px; }
+  .stat b { display: block; font-size: 20px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin: 16px 0; }
+  .panel p { margin: 0 0 10px; }
+  ul { margin: 8px 0 0; padding-left: 18px; }
+  li { margin: 0 0 8px; }
   .Critical { color: var(--critical); }
   .High { color: var(--high); }
   .Medium { color: var(--medium); }
   .Low { color: var(--low); }
-  .chain { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .hop {
-    background: #10192d;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 10px;
-    min-width: 140px;
-    max-width: 220px;
-    cursor: pointer;
-  }
-  .hop.selected { border-color: var(--accent); }
-  .arrow { color: var(--accent); }
-  ul { margin: 8px 0 0; padding-left: 18px; }
-  button.ghost {
-    background: transparent;
-    color: var(--text);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 6px 10px;
-    cursor: pointer;
-  }
-  code { color: #d6e4ff; }
-  a { color: var(--accent); }
-  .finding {
-    text-align: left;
-    color: inherit;
-    background: #10192d;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 10px 12px;
-    margin: 8px 0 0;
-  }
-  .finding.open, .finding:hover { border-color: var(--accent); }
-  .finding-head {
-    width: 100%;
-    text-align: left;
-    color: inherit;
-    background: transparent;
-    border: 0;
-    padding: 0;
-    cursor: pointer;
-    font: inherit;
-  }
-  .finding h3 { margin: 0 0 8px; font-size: 15px; }
-  .triage { display: grid; grid-template-columns: 72px 1fr; gap: 4px 8px; margin: 0; }
-  .triage dt { color: var(--muted); }
-  .triage dd { margin: 0; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; word-break: break-all; }
-  .clip { margin: 8px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .finding.open .clip { display: none; }
-  .detail { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
-  .detail p { margin: 0 0 12px; line-height: 1.5; }
-  .detail strong { font-weight: 700; }
-  .copyrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  .copyrow p { margin: 0; }
-  button.copy {
-    background: transparent;
-    color: var(--accent);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 4px 8px;
-    cursor: pointer;
-  }
-  pre.exception {
-    white-space: pre-wrap;
-    background: #0c1222;
-    border-radius: 8px;
-    padding: 8px;
-    margin: 6px 0 0;
-    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-  }
-  .unused { margin-top: 16px; }
-  .outcomes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
-  @media (max-width: 1100px) { .outcomes { grid-template-columns: 1fr; } }
-  .outcome, .unused-card {
-    background: #10192d;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 12px;
-  }
-  .outcome h3, .unused-card h3 { margin: 0 0 6px; font-size: 15px; }
-  .outcome .count { font-size: 22px; font-weight: 700; }
-  .qa { display: grid; grid-template-columns: 1fr; gap: 2px; margin: 8px 0 0; }
-  .qa dt { color: var(--muted); margin-top: 8px; }
-  .qa dd { margin: 0; }
-  .unused-list { display: grid; gap: 10px; margin-top: 12px; }
-  .file-group { margin-top: 4px; }
-  .file-group h3 { margin: 8px 0 0; font-size: 14px; color: var(--accent); }
-  .window { margin: 8px 0 0; }
-  .about, .install {
-    margin-top: 16px;
-    padding: 16px;
-    border-radius: 12px;
-    background: #121b2e;
-    border: 1px solid var(--line);
-  }
-  .about { max-width: 78ch; }
-  .about h2, .install h2 { margin: 0 0 8px; font-size: 18px; }
-  .about p, .install p { margin: 0; }
-  .install details { margin-top: 12px; }
-  .install summary { cursor: pointer; color: var(--accent); }
-  pre.workflow {
-    white-space: pre-wrap;
-    background: #0c1222;
-    border-radius: 8px;
-    padding: 12px;
-    margin: 8px 0 0;
-    font-size: 12px;
-    line-height: 1.45;
-  }
 </style>
 </head>
 <body>
 <header>
-  <h1 id="title">Attack paths</h1>
-  <p class="muted"><a href="graph.html">Open the graph</a> · <a href="threat-model.html">Open the threat model</a> · <a href="#unused-code">Unused code</a></p>
-  <div class="muted" id="subtitle"></div>
+  <h1 id="title">Attack path summary</h1>
+  <p class="muted" id="subtitle"></p>
+  <nav class="links">
+    <a href="threat-model.html">Threat model</a>
+    <a href="graph.html">Graph</a>
+    <a href="unused.html">Unused code</a>
+  </nav>
   <div class="stats" id="stats"></div>
-  <div class="banner" id="banner"></div>
-  <div id="objectives"></div>
 </header>
 <main>
-  <section class="panel start" id="start">
-    <h2>Start here</h2>
-    <div id="start-list"></div>
+  <section class="panel">
+    <h2>What this application does</h2>
+    <p id="about"></p>
   </section>
-  <div style="display:flex; gap:8px; margin-bottom:12px;">
-    <button class="ghost" id="mode" type="button">Show every component on a path</button>
-  </div>
-  <div class="layout">
-    <section class="panel" id="path-list"></section>
-    <section class="panel">
-      <div class="chain" id="chain"></div>
-      <div class="factors" id="factors"></div>
-      <h3>What to remove</h3>
-      <ul id="recs"></ul>
-      <h3>Findings on this path</h3>
-      <div id="findings"></div>
-    </section>
-    <section class="panel" id="detail"><p class="muted">Select a component.</p></section>
-  </div>
+  <section class="panel">
+    <h2>What was found</h2>
+    <p id="found"></p>
+    <ul id="paths"></ul>
+  </section>
   <section class="panel" id="ignored" hidden>
     <h2>Generic credentials ignored</h2>
-    <div id="ignored-list"></div>
-  </section>
-  <section class="panel unused" id="unused-code">
-    <h2>Unused code in this repository</h2>
-    <div class="outcomes" id="unused-outcomes"></div>
-    <div class="unused-list" id="unused-list"></div>
-  </section>
-  <section class="panel install" id="install">
-    <h2>Add this scan to a repository</h2>
-    <div id="install-blocks"></div>
+    <ul id="ignored-list"></ul>
   </section>
 </main>
 <script id="data" type="application/json">__PAYLOAD__</script>
 <script>
 const data = JSON.parse(document.getElementById("data").textContent);
-const nodes = Object.fromEntries(data.nodes.map((node) => [node.id, node]));
-const title = document.getElementById("title");
-title.textContent = data.repository + " attack paths";
-document.getElementById("subtitle").textContent =
-  "Baseline PER " + data.per.rate + " · eligible " + data.per.eligible + " · erased " + data.per.erased +
-  (data.trend && data.trend.reduction !== null ? " · critical-path change " + Math.round(data.trend.reduction * 100) + "%" : " · baseline snapshot");
+const card = data.scorecard || {};
+const paths = data.paths || [];
+const findings = data.findings || [];
+const unused = (data.unused || {}).summary || {};
+document.getElementById("title").textContent = (data.repository || "Repository") + " · attack path summary";
+document.getElementById("subtitle").textContent = "Open a linked page for the line, the effect, and the erasure.";
 
-const card = data.scorecard;
 const stats = [
-  ["Applications", card.applications],
-  ["Components", card.components],
-  ["Critical paths", card.critical_paths],
-  ["Identity paths", card.identity_paths],
-  ["Cloud paths", card.cloud_paths],
-  ["Supply chain", card.supply_chain_paths],
-  ["AI paths", card.ai_paths || 0],
-  ["Attack path score", card.attack_path_score],
-  ["Identity risk", card.identity_risk],
-  ["Cloud risk", card.cloud_risk],
-  ["Supply chain risk", card.supply_chain_risk]
+  ["Critical", card.critical_paths || 0],
+  ["High", card.high_paths || 0],
+  ["Findings", card.findings || findings.length],
+  ["Unused code", unused.removals || 0],
+  ["Attack path score", card.attack_path_score || 0]
 ];
-if (card.objectives) stats.push(["Objectives reached", card.objectives]);
-const unusedSummary = (data.unused && data.unused.summary) || {};
-stats.push(["Unused code", unusedSummary.removals || 0]);
-const statsEl = document.getElementById("stats");
+const statsRoot = document.getElementById("stats");
 stats.forEach(([label, value]) => {
   const el = document.createElement("div");
   el.className = "stat";
-  const b = document.createElement("b");
-  b.textContent = value;
-  el.appendChild(b);
+  const number = document.createElement("b");
+  number.textContent = String(value);
+  el.appendChild(number);
   el.appendChild(document.createTextNode(label));
-  statsEl.appendChild(el);
+  statsRoot.appendChild(el);
 });
 
-const objectives = document.getElementById("objectives");
-(data.hypotheses || []).filter((item) => item.found).slice(0, 6).forEach((item) => {
-  const block = document.createElement("div");
-  block.className = "banner";
-  const title = document.createElement("b");
-  title.textContent = item.name + " · " + item.found + " path" + (item.found === 1 ? "" : "s");
-  block.appendChild(title);
-  const walk = document.createElement("div");
-  walk.textContent = (item.paths[0].labels || []).join(" → ");
-  block.appendChild(walk);
-  const risk = document.createElement("div");
-  risk.textContent = "Risk: " + item.paths[0].band + (item.question ? " · " + item.question : "");
-  block.appendChild(risk);
-  objectives.appendChild(block);
+document.getElementById("about").textContent = whatItDoes(data);
+
+const bands = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+paths.forEach((path) => { if (bands[path.band] !== undefined) bands[path.band] += 1; });
+const medium = paths.filter((path) => path.band === "Medium").length;
+document.getElementById("found").textContent =
+  bands.Critical + " critical path(s), " + bands.High + " high path(s), and " + medium +
+  " medium path(s). " + findings.length + " finding(s) stayed in this scan. " +
+  (unused.removals || 0) + " unused private symbol(s) can be removed. " +
+  ((data.suppressed || []).length ? (data.suppressed || []).length + " exception(s) were left out. " : "");
+
+const list = document.getElementById("paths");
+const ranked = paths.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+if (!ranked.length && !findings.length) {
+  const item = document.createElement("li");
+  item.textContent = "No attack path stayed after validation.";
+  list.appendChild(item);
+}
+ranked.forEach((path) => list.appendChild(pathRow(path)));
+const covered = new Set();
+ranked.forEach((path) => (path.hops || []).forEach((hop) => covered.add(placeKey(hop))));
+findings.forEach((finding) => {
+  if (covered.has(placeKey(finding))) return;
+  list.appendChild(findingRow(finding));
 });
 
-let selected = 0;
-let showAll = false;
-let openFinding = "";
-const pathList = document.getElementById("path-list");
-const chainEl = document.getElementById("chain");
-const banner = document.getElementById("banner");
-
-function renderList() {
-  pathList.textContent = "";
-  data.paths.forEach((path, index) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "path" + (index === selected ? " active" : "");
-    const band = document.createElement("div");
-    band.className = "band " + path.band;
-    band.textContent = path.band + " · " + path.score + " · " + path.category.replaceAll("_", " ") + (path.cwe_rank ? " · " + path.cwe + " rank " + path.cwe_rank : "");
-    button.appendChild(band);
-    const text = document.createElement("div");
-    text.textContent = path.narrative;
-    button.appendChild(text);
-    const action = (path.recommendations || [])[0];
-    if (action) {
-      const line = document.createElement("div");
-      line.className = "action-line";
-      line.textContent = "Action: " + action;
-      button.appendChild(line);
-    }
-    button.addEventListener("click", () => { selected = index; openFinding = ""; render(); });
-    pathList.appendChild(button);
-  });
-  if (!data.paths.length) {
-    pathList.textContent = "No composed attack path was found.";
-  }
-}
-
-function renderChain() {
-  chainEl.textContent = "";
-  const path = data.paths[selected];
-  banner.textContent = "";
-  if (!path) {
-    banner.textContent = "No composed chain.";
-  } else {
-    const lead = document.createElement("div");
-    lead.textContent = path.narrative;
-    banner.appendChild(lead);
-    if (path.explanation) {
-      const extra = document.createElement("div");
-      extra.style.marginTop = "8px";
-      extra.textContent = path.explanation;
-      banner.appendChild(extra);
-    }
-  }
-  if (!path) return;
-  const hops = showAll ? data.nodes.filter((node) => node.attack_paths > 0).map((node) => ({
-    label: node.name, node_id: node.id, file: node.file, line: node.line, rule: node.kind, evidence: "", recommendation: ""
-  })) : path.hops;
-  hops.forEach((hop, index) => {
-    if (index > 0 && !showAll) {
-      const arrow = document.createElement("span");
-      arrow.className = "arrow";
-      arrow.textContent = "↓";
-      chainEl.appendChild(arrow);
-    }
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = "hop";
-    const strong = document.createElement("strong");
-    strong.textContent = hop.label;
-    card.appendChild(strong);
-    const where = document.createElement("div");
-    where.className = "muted";
-    where.textContent = [hop.rule, hop.tier, hop.file, hop.line].filter(Boolean).join(" · ");
-    card.appendChild(where);
-    card.addEventListener("click", () => {
-      openFinding = findingKey({
-        rule: hop.rule,
-        title: hop.label,
-        file: hop.file,
-        line: hop.line,
-        evidence: hop.evidence
-      });
-      renderDetail(hop.node_id, path);
-      renderFindings(path);
-    });
-    chainEl.appendChild(card);
-  });
-  renderFindings(path);
-  const factors = document.getElementById("factors");
-  factors.textContent = "";
-  [["Exposure", path.exposure], ["Privilege", path.privilege], ["Asset", path.asset], ["Exploitability", path.exploitability], ["Score", path.score]].forEach(([label, value]) => {
-    const el = document.createElement("div");
-    el.className = "factor";
-    const b = document.createElement("b");
-    b.textContent = value;
-    el.appendChild(b);
-    el.appendChild(document.createTextNode(label));
-    factors.appendChild(el);
-  });
-  const recs = document.getElementById("recs");
-  recs.textContent = "";
-  path.recommendations.forEach((item) => {
+const ignored = data.ignored_credentials || [];
+if (ignored.length) {
+  document.getElementById("ignored").hidden = false;
+  const root = document.getElementById("ignored-list");
+  ignored.forEach((item) => {
     const li = document.createElement("li");
-    li.textContent = item;
-    recs.appendChild(li);
+    li.textContent = (item.file || "") + ":" + (item.line || "") + " " + (item.name || "credential") + ". " + (item.reason || "");
+    root.appendChild(li);
   });
-  renderDetail(path.hops[0] && path.hops[0].node_id, path);
 }
 
-function renderDetail(nodeId, path) {
-  const detail = document.getElementById("detail");
-  detail.textContent = "";
-  const chosen = path && pathFindings(path).find((item) => findingKey(item) === openFinding);
-  if (chosen) {
-    const evidenceTitle = document.createElement("h3");
-    evidenceTitle.textContent = "Selected finding";
-    detail.appendChild(evidenceTitle);
-    detail.appendChild(triageBlock(chosen));
-    if (chosen.evidence) {
-      const evidence = document.createElement("p");
-      evidence.textContent = "Evidence: " + chosen.evidence;
-      detail.appendChild(evidence);
+function pathRow(path) {
+  const hop = (path.hops || []).find((item) => item.file) || {};
+  const place = hop.file ? hop.file + (hop.line ? ":" + hop.line : "") : "";
+  const li = document.createElement("li");
+  const band = document.createElement("span");
+  band.className = path.band || "";
+  band.textContent = (path.band || "Unscored") + " " + (path.score || "");
+  li.appendChild(band);
+  const name = String(path.category || "path").replace(/_/g, " ");
+  li.appendChild(document.createTextNode(" · " + name + (place ? " · " + place : "") + ". "));
+  const link = document.createElement("a");
+  link.href = "threat-model.html#" + encodeURIComponent(placeKey(hop));
+  link.textContent = "Open in the threat model";
+  li.appendChild(link);
+  return li;
+}
+
+function findingRow(finding) {
+  const place = finding.file ? finding.file + (finding.line ? ":" + finding.line : "") : "";
+  const li = document.createElement("li");
+  const band = document.createElement("span");
+  band.className = finding.band || "";
+  band.textContent = (finding.band || "Unscored") + " " + (finding.score || "");
+  li.appendChild(band);
+  li.appendChild(document.createTextNode(" · " + (finding.title || finding.rule || "Finding") + (place ? " · " + place : "") + ". "));
+  const link = document.createElement("a");
+  link.href = "threat-model.html#" + encodeURIComponent(placeKey(finding));
+  link.textContent = "Open in the threat model";
+  li.appendChild(link);
+  return li;
+}
+
+function placeKey(hop) {
+  return [hop.rule || "", hop.file || "", String(hop.line || "")].join("|");
+}
+
+function whatItDoes(snapshot) {
+  const name = snapshot.repository || "This repository";
+  const nodes = snapshot.nodes || [];
+  const languages = [...new Set(nodes.map((node) => node.language).filter(Boolean))].sort();
+  const routes = [];
+  (snapshot.components || []).forEach((item) => {
+    if (item.receives && !routes.includes(item.receives)) routes.push(item.receives);
+  });
+  nodes.forEach((node) => {
+    const props = node.properties || {};
+    if (node.kind === "endpoint" && props.method && props.path) {
+      const route = String(props.method).toUpperCase() + " " + props.path;
+      if (!routes.includes(route)) routes.push(route);
     }
-    const more = document.createElement("p");
-    const link = document.createElement("a");
-    link.href = threatHref(chosen);
-    link.textContent = "Open this issue in the threat model";
-    more.appendChild(link);
-    detail.appendChild(more);
-  }
-  const node = nodes[nodeId];
-  if (!node) {
-    if (!chosen) detail.appendChild(document.createTextNode("No component selected."));
-    return;
-  }
-  const heading = document.createElement("h2");
-  heading.textContent = node.name;
-  detail.appendChild(heading);
-  const meta = document.createElement("p");
-  meta.className = "muted";
-  meta.textContent = [node.kind, node.file, node.line].filter(Boolean).join(" · ");
-  detail.appendChild(meta);
-  const rows = [
-    ["Risk score", node.risk],
-    ["Incoming", node.incoming],
-    ["Outgoing", node.outgoing],
-    ["Receives", node.receives || "—"],
-    ["Calls", (node.calls || []).join(", ") || "—"]
-  ];
-  rows.forEach(([label, value]) => {
-    const p = document.createElement("p");
-    const b = document.createElement("b");
-    b.textContent = label + ": ";
-    p.appendChild(b);
-    p.appendChild(document.createTextNode(String(value)));
-    detail.appendChild(p);
   });
-  const secrets = data.edges.filter((edge) => edge.source === node.id || edge.target === node.id)
-    .map((edge) => nodes[edge.source === node.id ? edge.target : edge.source])
-    .filter((item) => item && item.kind === "secret");
-  const secretP = document.createElement("p");
-  const secretB = document.createElement("b");
-  secretB.textContent = "Connected secrets: ";
-  secretP.appendChild(secretB);
-  secretP.appendChild(document.createTextNode(String(secrets.length)));
-  detail.appendChild(secretP);
-  const related = data.paths.filter((item) => item.node_ids.includes(node.id));
-  const title = document.createElement("h3");
-  title.textContent = "Attack paths";
-  detail.appendChild(title);
-  const list = document.createElement("ul");
-  related.forEach((item) => {
-    const li = document.createElement("li");
-    li.textContent = item.band + " " + item.score + " — " + item.narrative;
-    list.appendChild(li);
-  });
-  detail.appendChild(list);
-}
-
-function findingKey(item) {
-  return [item.rule || "", item.file || "", String(item.line || ""), item.evidence || "", item.title || ""].join("|");
-}
-
-function pathFindings(path) {
-  const items = [];
-  const seen = new Set();
-  const places = new Set();
-  function push(item) {
-    if (!item || !item.rule || !item.file) return;
-    const place = [item.rule || "", item.file || "", String(item.line || "")].join("|");
-    const key = place + "|" + (item.evidence || "");
-    if (seen.has(key)) return;
-    if (!item.evidence && places.has(place)) return;
-    seen.add(key);
-    places.add(place);
-    items.push(item);
-  }
-  (path.findings || []).forEach(push);
-  (path.hops || []).forEach((hop) => push({
-    rule: hop.rule,
-    title: hop.label,
-    file: hop.file,
-    line: hop.line,
-    evidence: hop.evidence,
-    recommendation: hop.recommendation,
-    node_id: hop.node_id,
-    access: hop.access,
-    foothold: hop.foothold,
-    connected: hop.connected,
-    why: hop.why,
-    effect: hop.effect,
-    stride: hop.stride,
-    pasta: hop.pasta,
-    dread_text: hop.dread_text,
-    fingerprint: hop.fingerprint,
-    walk: hop.walk,
-    band: hop.band,
-    score: hop.score
-  }));
-  return items;
-}
-
-function nodeFor(finding, path) {
-  if (finding.node_id) return finding.node_id;
-  const hop = (path.hops || []).find((item) =>
-    (item.rule || "") === (finding.rule || "") &&
-    (item.file || "") === (finding.file || "") &&
-    String(item.line || "") === String(finding.line || "")
-  );
-  return hop && hop.node_id;
-}
-
-function triageBlock(finding) {
-  const list = document.createElement("dl");
-  list.className = "triage";
-  [["File", finding.file || "not recorded"], ["Rule", finding.rule || "not recorded"], ["Line", finding.line || "not recorded"]].forEach(([label, value]) => {
-    const term = document.createElement("dt");
-    term.textContent = label;
-    const data = document.createElement("dd");
-    data.textContent = String(value);
-    list.appendChild(term);
-    list.appendChild(data);
-  });
-  return list;
-}
-
-function placeKey(item) {
-  return [item.rule || "", item.file || "", String(item.line || "")].join("|");
-}
-
-function threatHref(finding) {
-  return "threat-model.html#" + encodeURIComponent(placeKey(finding));
-}
-
-function yamlScalar(value) {
-  const text = String(value ?? "");
-  if (text === "") return '""';
-  if (/[:#{}[\],&*!|>'"%@`]|^\s|\s$|\n/.test(text)) {
-    return '"' + text.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
-  }
+  const surfaces = [];
+  if (nodes.some((node) => node.kind === "workflow")) surfaces.push("a pipeline");
+  if (nodes.some((node) => node.kind === "container")) surfaces.push("a container image");
+  if (nodes.some((node) => node.kind === "workload")) surfaces.push("a deployed workload");
+  if (nodes.some((node) => node.kind === "bucket" || node.kind === "cloud")) surfaces.push("cloud resources");
+  const specs = nodes.filter((node) => String(node.name || "").indexOf("OpenAPI ") === 0);
+  let text = name;
+  if (languages.length) text += " is written in " + joinList(languages) + ".";
+  else text += " was reviewed from the files in this checkout.";
+  if (routes.length) text += " It accepts " + joinList(routes.slice(0, 8)) + ".";
+  else text += " No public route was named in the files that were read.";
+  if (specs.length) text += " An OpenAPI document describes " + specs.length + (specs.length === 1 ? " operation." : " operations.");
+  if (surfaces.length) text += " The checkout also contains " + joinList(surfaces) + ".";
   return text;
 }
 
-function exceptionYaml(finding) {
-  const line = finding.line === 0 || finding.line ? String(finding.line) : "";
-  return [
-    "exceptions:",
-    "  - file: " + yamlScalar(finding.file || ""),
-    "    rule: " + yamlScalar(finding.rule || ""),
-    "    line: " + (line || '""'),
-    "    reason:"
-  ].join("\n");
+function joinList(items) {
+  if (!items.length) return "";
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return items[0] + " and " + items[1];
+  return items.slice(0, -1).join(", ") + ", and " + items[items.length - 1];
 }
-
-function inlineMark(finding) {
-  const evidence = String(finding.evidence || "").split("\n")[0];
-  return "# pathfinder: false-positive: \n" + evidence;
-}
-
-function renderFindings(path) {
-  const root = document.getElementById("findings");
-  root.textContent = "";
-  if (!path) return;
-  const items = pathFindings(path);
-  if (!items.length) {
-    const empty = document.createElement("p");
-    empty.className = "muted";
-    empty.textContent = "This path has no separate finding to expand.";
-    root.appendChild(empty);
-    return;
-  }
-  items.forEach((finding) => {
-    const key = findingKey(finding);
-    const open = openFinding === key;
-    const card = document.createElement("article");
-    card.className = "finding" + (open ? " open" : "");
-    const head = document.createElement("button");
-    head.type = "button";
-    head.className = "finding-head";
-    const heading = document.createElement("h3");
-    const band = finding.band ? finding.band + " " + (finding.score ?? "") + " · " : "";
-    heading.textContent = band + (finding.title || finding.rule || "Finding");
-    head.appendChild(heading);
-    head.appendChild(triageBlock(finding));
-    if (finding.evidence) {
-      const preview = document.createElement("p");
-      preview.className = "muted clip";
-      preview.textContent = finding.evidence;
-      head.appendChild(preview);
-    }
-    head.addEventListener("click", () => {
-      openFinding = open ? "" : key;
-      renderFindings(path);
-      renderDetail(nodeFor(finding, path), path);
-    });
-    card.appendChild(head);
-    if (open) card.appendChild(findingDetail(finding));
-    root.appendChild(card);
-  });
-}
-
-function labeled(parent, label, text) {
-  if (!text) return;
-  const p = document.createElement("p");
-  const strong = document.createElement("strong");
-  strong.textContent = label;
-  p.appendChild(strong);
-  let body = String(text);
-  if (body.toLowerCase().startsWith(label.toLowerCase())) body = body.slice(label.length).trim();
-  p.appendChild(document.createTextNode(" " + body));
-  parent.appendChild(p);
-}
-
-function findingDetail(finding) {
-  const extra = document.createElement("div");
-  extra.className = "detail";
-  addText(extra, "p", "", finding.access || "An attacker can use this as an attack path to eliminate.");
-  labeled(extra, "Foothold:", finding.foothold);
-  labeled(extra, "Connected attack paths:", finding.connected);
-  labeled(extra, "Effect:", finding.effect);
-  labeled(extra, "Database:", finding.database);
-  labeled(extra, "Next step:", finding.recommendation);
-  if (finding.evidence) {
-    const evidence = document.createElement("pre");
-    evidence.className = "exception";
-    evidence.textContent = finding.evidence;
-    extra.appendChild(evidence);
-  }
-  if (finding.dread_text) addText(extra, "p", "", finding.dread_text);
-  if ((finding.stride || []).length) addText(extra, "p", "", "STRIDE · " + finding.stride.join(", "));
-  if (finding.pasta) addText(extra, "p", "", "PASTA · " + finding.pasta);
-  if (finding.fingerprint) addText(extra, "p", "", "Exception id: " + finding.fingerprint + " · " + (finding.file || "") + (finding.line ? ":" + finding.line : ""));
-  const walk = finding.walk || [];
-  if (walk.length) {
-    addText(extra, "p", "", "Walk");
-    const list = document.createElement("ul");
-    walk.forEach((step) => {
-      const li = document.createElement("li");
-      li.textContent = step;
-      list.appendChild(li);
-    });
-    extra.appendChild(list);
-  }
-  const more = document.createElement("p");
-  const link = document.createElement("a");
-  link.href = threatHref(finding);
-  link.textContent = "Open this issue in the threat model";
-  more.appendChild(link);
-  extra.appendChild(more);
-  const row = document.createElement("div");
-  row.className = "copyrow";
-  const record = document.createElement("p");
-  record.textContent = "For the exception record";
-  row.appendChild(record);
-  const copy = document.createElement("button");
-  copy.type = "button";
-  copy.className = "copy";
-  copy.textContent = "Copy";
-  const snippetText = exceptionYaml(finding);
-  copy.addEventListener("click", () => copyText(copy, snippetText));
-  row.appendChild(copy);
-  extra.appendChild(row);
-  const note = document.createElement("p");
-  note.className = "muted";
-  note.textContent = "One issue. Commit pathfinder-exceptions.yml in the repository that runs the scan, at the root next to README.md. The filename has no leading dot. Fill in a reason of at least 8 characters. A blank reason does not hide this finding. Another finding in the same file stays.";
-  extra.appendChild(note);
-  const snippet = document.createElement("pre");
-  snippet.className = "exception";
-  snippet.textContent = snippetText;
-  extra.appendChild(snippet);
-  const inlineLabel = document.createElement("p");
-  inlineLabel.className = "muted";
-  inlineLabel.textContent = "Or on the line above the evidence:";
-  extra.appendChild(inlineLabel);
-  const inline = document.createElement("pre");
-  inline.className = "exception";
-  inline.textContent = inlineMark(finding);
-  extra.appendChild(inline);
-  return extra;
-}
-
-function copyText(button, text) {
-  const done = () => {
-    button.textContent = "Copied";
-    setTimeout(() => { button.textContent = "Copy"; }, 1200);
-  };
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(done).catch(() => done());
-    return;
-  }
-  done();
-}
-
-function addText(parent, tag, className, text) {
-  const el = document.createElement(tag);
-  if (className) el.className = className;
-  el.textContent = text;
-  parent.appendChild(el);
-  return el;
-}
-
-function outcomeCard(title, count, body) {
-  const card = document.createElement("article");
-  card.className = "outcome";
-  addText(card, "h3", "", title);
-  addText(card, "div", "count", String(count));
-  addText(card, "p", "muted", body);
-  return card;
-}
-
-function answerCard(item) {
-  const card = document.createElement("article");
-  card.className = "unused-card";
-  addText(card, "h3", "", (item.name || "Symbol") + " · line " + (item.line || ""));
-  addText(card, "p", "muted", [item.language, item.kind, item.confidence].filter(Boolean).join(" · "));
-  const list = document.createElement("dl");
-  list.className = "qa";
-  [
-    ["What was found", item.what],
-    ["How it affects the repo", item.effect],
-    ["Architecture", item.architecture],
-    ["Database", item.database],
-    ["How we know", item.why],
-    ["Next step", item.next]
-  ].forEach(([label, value]) => {
-    if (!value) return;
-    addText(list, "dt", "", label);
-    addText(list, "dd", "", value);
-  });
-  card.appendChild(list);
-  if (item.window) addText(card, "pre", "exception window", item.window);
-  else if (item.evidence) addText(card, "pre", "exception", item.evidence);
-  return card;
-}
-
-function actionRow(band, place, text, onClick) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "action";
-  const label = document.createElement("div");
-  label.className = "band " + (band === "Remove" ? "Low" : band);
-  label.textContent = band + " · " + place;
-  button.appendChild(label);
-  const body = document.createElement("div");
-  body.textContent = text;
-  button.appendChild(body);
-  button.addEventListener("click", onClick);
-  return button;
-}
-
-function renderStart() {
-  const root = document.getElementById("start-list");
-  if (!root) return;
-  root.textContent = "";
-  const urgent = (data.paths || []).filter((path) => path.band === "Critical" || path.band === "High");
-  const removals = ((data.unused || {}).removals) || [];
-  const files = new Map();
-  removals.forEach((item) => files.set(item.file || "", (files.get(item.file || "") || 0) + 1));
-  if (!urgent.length && !removals.length) {
-    addText(root, "p", "", "No critical or high path, and no unused code to remove.");
-  }
-  urgent.slice(0, 6).forEach((path) => {
-    const hop = (path.hops || []).find((item) => item.file) || {};
-    const place = hop.file ? hop.file + ":" + (hop.line || "") : "Attack path";
-    const text = (path.recommendations || [])[0] || path.narrative || "Review this path";
-    root.appendChild(actionRow(path.band, place, text, () => {
-      selected = data.paths.indexOf(path);
-      openFinding = "";
-      render();
-      document.getElementById("path-list").scrollIntoView({ behavior: "smooth", block: "start" });
-    }));
-  });
-  [...files.entries()].slice(0, 8).forEach(([file, count]) => {
-    root.appendChild(actionRow(
-      "Remove",
-      file || "Unused code",
-      "Delete " + count + " unused " + (count === 1 ? "symbol" : "symbols") + ".",
-      () => document.getElementById("unused-code").scrollIntoView({ behavior: "smooth", block: "start" })
-    ));
-  });
-}
-
-function renderIgnored() {
-  const rows = data.ignored_credentials || [];
-  const section = document.getElementById("ignored");
-  if (!section || !rows.length) return;
-  section.hidden = false;
-  const root = document.getElementById("ignored-list");
-  rows.forEach((item) => {
-    const p = document.createElement("p");
-    const strong = document.createElement("strong");
-    strong.textContent = (item.file || "") + ":" + (item.line || "");
-    p.appendChild(strong);
-    p.appendChild(document.createTextNode(" " + (item.name || "credential") + " was ignored. " + (item.reason || "")));
-    root.appendChild(p);
-  });
-}
-
-function renderUnused() {
-  const unused = data.unused || {};
-  const summary = unused.summary || {};
-  const removals = unused.removals || [];
-  const held = unused.held || [];
-  const outcomes = document.getElementById("unused-outcomes");
-  outcomes.textContent = "";
-  outcomes.appendChild(outcomeCard(
-    "Remove",
-    removals.length,
-    removals.length ? "Not called." : "None."
-  ));
-  outcomes.appendChild(outcomeCard(
-    "Leave in place",
-    summary.held || 0,
-    "Public or exported."
-  ));
-  const skipped = summary.skipped || 0;
-  outcomes.appendChild(outcomeCard(
-    "Already in use",
-    summary.referenced || 0,
-    "Called." + (skipped ? " " + skipped + " entry names kept." : "")
-  ));
-  const list = document.getElementById("unused-list");
-  list.textContent = "";
-  if (removals.length) addText(list, "h3", "", "Recommended removals");
-  const grouped = new Map();
-  removals.forEach((item) => {
-    const file = item.file || "(unknown file)";
-    if (!grouped.has(file)) grouped.set(file, []);
-    grouped.get(file).push(item);
-  });
-  grouped.forEach((items, file) => {
-    const group = document.createElement("section");
-    group.className = "file-group";
-    addText(group, "h3", "", file + " · " + items.length + (items.length === 1 ? " removal" : " removals"));
-    items.forEach((item) => group.appendChild(answerCard(item)));
-    list.appendChild(group);
-  });
-  const shownHeld = held.slice(0, 12);
-  if (shownHeld.length) addText(list, "h3", "", "Not recommended for removal");
-  shownHeld.forEach((item) => list.appendChild(answerCard(item)));
-  const more = (summary.held || 0) - shownHeld.length;
-  if (more > 0) addText(list, "p", "muted", more + " more public symbols are counted above and left in the repository.");
-  if (summary.omitted) addText(list, "p", "muted", summary.omitted + " unused symbol(s) were omitted by a recorded exception.");
-}
-
-function renderInstall() {
-  const root = document.getElementById("install-blocks");
-  if (!root) return;
-  const guide = data.install || {};
-  root.textContent = "";
-  [
-    ["GitHub on the target branch", guide.repository, "In the repository you want to scan, check out the target branch. Save this file as .github/workflows/attack-paths.yml on that branch, commit it, and push the target branch. Pull requests into that branch run this scan after the file is on the target branch. A push runs the scan on every branch that contains this file."],
-    ["GitLab on the target branch", guide.repository_gitlab, "In the repository you want to scan, check out the target branch. Save this file as attack-paths.gitlab-ci.yml. On that same branch, add include: local: attack-paths.gitlab-ci.yml to .gitlab-ci.yml. Commit both files and push the target branch. Merge requests into that branch run this scan after the files are on the target branch."],
-    ["Azure DevOps on the target branch", guide.repository_azure, "In the repository you want to scan, check out the target branch. Save this file as azure-pipelines/attack-paths.yml, commit it, and push the target branch. In Azure DevOps, create a pipeline from that file. Pull requests into the target branch run this scan after the file is on the target branch."],
-    ["GitHub Actions", guide.github, "Save this file as .github/workflows/attack-paths.yml in the repository you want to scan."],
-    ["GitLab CI", guide.gitlab, "Save this file as attack-paths.gitlab-ci.yml, then include it from .gitlab-ci.yml."],
-    ["Azure DevOps", guide.azure, "Save this file as azure-pipelines/attack-paths.yml, then create a pipeline from it."],
-    ["Local machine", guide.local, "Run these commands from a clone of this tool. Point them at the repository you want to scan."]
-  ].forEach(([title, code, help]) => {
-    if (!code) return;
-    const block = document.createElement("details");
-    const summary = document.createElement("summary");
-    summary.textContent = title;
-    block.appendChild(summary);
-    const note = document.createElement("p");
-    note.className = "muted";
-    note.textContent = help;
-    block.appendChild(note);
-    const pre = document.createElement("pre");
-    pre.className = "workflow";
-    pre.textContent = code;
-    block.appendChild(pre);
-    root.appendChild(block);
-  });
-}
-
-function render() {
-  renderStart();
-  renderList();
-  renderChain();
-  renderUnused();
-  renderIgnored();
-  renderInstall();
-}
-document.getElementById("mode").addEventListener("click", () => {
-  showAll = !showAll;
-  document.getElementById("mode").textContent = showAll ? "Show the selected chain" : "Show every component on a path";
-  renderChain();
-});
-render();
 </script>
 </body>
 </html>

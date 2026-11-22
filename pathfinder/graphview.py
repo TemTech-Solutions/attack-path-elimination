@@ -186,6 +186,7 @@ def elimination_paths(result: dict) -> list[dict]:
         item["edges"] = item.get("graph_edges") or []
         item.pop("graph_edges", None)
         item["diagnosis"] = _diagnosis(item)
+        _paint_issue(result, item)
         item["next_steps"] = _next_steps(item)
         item["kind"] = "path"
     packed.extend(_finding_issues(result, packed))
@@ -280,6 +281,27 @@ def _pack_objective(name: str, path: dict) -> dict:
         "remove": remove,
         "edges": [],
     }
+
+
+def _paint_issue(result: dict, item: dict) -> None:
+    """Put the line-specific erasure text on every hop the reports show."""
+    by_place = {
+        (finding.get("rule") or "", finding.get("file"), finding.get("line")): finding
+        for finding in result.get("findings") or []
+        if finding.get("access")
+    }
+    for hop in item.get("hops") or []:
+        match = by_place.get((hop.get("rule") or "", hop.get("file"), hop.get("line")))
+        if not match:
+            continue
+        hop["access"] = match["access"]
+        for key in ("foothold", "connected", "effect", "database", "recommendation"):
+            if match.get(key):
+                hop[key] = match[key]
+    described = [hop.get("access") for hop in item.get("hops") or [] if hop.get("access")]
+    if len(described) == 1:
+        item["diagnosis"] = described[0]
+        item["narrative"] = described[0]
 
 
 def apply_plain_reports(result: dict) -> dict:
@@ -389,6 +411,7 @@ def _finding_issues(result: dict, paths: list[dict]) -> list[dict]:
             "kind": "finding",
         }
         item["diagnosis"] = _diagnosis(item)
+        _paint_issue(result, item)
         item["next_steps"] = _next_steps(item)
         issues.append(item)
     return issues
