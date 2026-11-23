@@ -64,7 +64,8 @@
   }
   .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
   .swatch { display: inline-block; width: 22px; height: 0; border-top: 2px solid #d6e4ff; margin-right: 6px; vertical-align: middle; }
-  .swatch.inferred { border-top-style: dashed; }
+  .swatch.inferred { border-top-style: dashed; border-top-color: #94a3b8; }
+  .swatch.ambiguous { border-top-style: dotted; border-top-color: #facc15; }
   .filters { display: flex; gap: 6px; margin: 8px 0; }
   .filters button { background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; cursor: pointer; }
   .filters button.active { color: var(--accent); border-color: var(--accent); }
@@ -75,7 +76,7 @@
   <h1 id="title">Attack graph</h1>
   <input id="search" type="search" placeholder="Find a component" />
   <select id="paths"></select>
-  <span class="legend"><span><i class="swatch"></i>EXTRACTED</span><span><i class="swatch inferred"></i>INFERRED</span></span>
+  <span class="legend"><span><i class="swatch"></i>EXTRACTED</span><span><i class="swatch inferred"></i>INFERRED</span><span><i class="swatch ambiguous"></i>AMBIGUOUS</span></span>
   <span id="langs" class="muted"></span>
   <p id="record" class="muted"></p>
   <a href="report.html">Summary</a>
@@ -92,8 +93,8 @@
 const data = JSON.parse(document.getElementById("data").textContent);
 const validation = data.validation || {};
 document.getElementById("record").textContent =
-  "Deep review and validation are in the summary. Kept " + (validation.kept || 0) +
-  ". Rejected " + (validation.rejected || 0) + ". Critical issues, with file and line, are on report.html.";
+  "The bright line is one walk, in order. Solid was read from a file. Dashed was resolved across files. Dotted did not settle on one relationship. Kept " +
+  (validation.kept || 0) + ". Rejected " + (validation.rejected || 0) + ".";
 const kindColor = {
   endpoint: "#7dd3fc",
   function: "#c4b5fd",
@@ -206,26 +207,35 @@ function resize() {
 window.addEventListener("resize", () => { resize(); draw(); });
 resize();
 
-function layoutPath(path) {
-  const trunk = [];
-  (path.node_ids || []).forEach((id) => { if (byId[id] && !trunk.includes(id)) trunk.push(id); });
-  (path.hops || []).forEach((hop) => { if (hop.node_id && byId[hop.node_id] && !trunk.includes(hop.node_id)) trunk.push(hop.node_id); });
-  const extra = [];
-  function addExtra(id) {
-    if (byId[id] && !trunk.includes(id) && !extra.includes(id) && extra.length < 18) extra.push(id);
+function walkIds(path) {
+  const ids = [];
+  function push(id) {
+    if (byId[id] && !ids.includes(id)) ids.push(id);
   }
-  edges.forEach((edge) => {
-    if (!trunk.includes(edge.source) && !trunk.includes(edge.target)) return;
-    addExtra(edge.source);
-    addExtra(edge.target);
-  });
-  (data.paths || []).forEach((other) => {
-    if (!other || other === path) return;
-    const shares = (other.node_ids || []).some((id) => trunk.includes(id));
-    if (!shares) return;
-    (other.node_ids || []).forEach(addExtra);
-  });
-  place(trunk, extra);
+  const walked = path.edges || [];
+  if (walked.length) {
+    push(walked[0].source);
+    walked.forEach((edge) => push(edge.target));
+  }
+  (path.node_ids || []).forEach(push);
+  (path.hops || []).forEach((hop) => push(hop.node_id));
+  return ids;
+}
+
+function layoutPath(path) {
+  const trunk = walkIds(path);
+  place(trunk, []);
+  fitWalk(trunk);
+}
+
+function fitWalk(trunk) {
+  if (!trunk.length) return;
+  const first = byId[trunk[0]];
+  const last = byId[trunk[trunk.length - 1]];
+  const span = Math.max((last.x - first.x) + 220, 1);
+  camera.k = Math.min(1, (canvas.width - 100) / span);
+  camera.x = 36 - first.x * camera.k;
+  camera.y = (canvas.height * 0.46) - first.y * camera.k;
 }
 
 function place(trunk, extra) {
@@ -237,7 +247,7 @@ function place(trunk, extra) {
   }
   const visible = new Set(trunk.concat(extra));
   nodes.forEach((node) => { node.shown = visible.has(node.id); node.pinned = trunk.includes(node.id); });
-  const gap = Math.max(150, (width - 160) / Math.max(trunk.length - 1, 1));
+  const gap = Math.max(210, (width - 160) / Math.max(trunk.length - 1, 1));
   trunk.forEach((id, index) => {
     const node = byId[id];
     node.x = trunk.length === 1 ? width / 2 : 80 + index * gap;
@@ -289,36 +299,54 @@ function draw() {
   for (let y = 0; y < canvas.height; y += 48) {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
   }
-  const focus = new Set(activePath ? (activePath.node_ids || []) : []);
-  (activePath ? activePath.hops || [] : []).forEach((hop) => { if (hop.node_id) focus.add(hop.node_id); });
-  edges.forEach((edge) => {
-    const a = byId[edge.source];
-    const b = byId[edge.target];
-    if (!a || !b || a.shown === false || b.shown === false) return;
-    const hot = activePath && (activePath.edges || []).some((item) => item.source === edge.source && item.target === edge.target && item.kind === edge.relation);
-    drawArrow(a, b, hot, edge.confidence === "INFERRED", false);
-  });
+  const trunk = activePath ? walkIds(activePath) : [];
+  const focus = new Set(trunk);
+  if (activePath) {
+    trunk.forEach((id, index) => {
+      if (index === 0) return;
+      const edge = walkEdge(trunk[index - 1], id);
+      const a = byId[trunk[index - 1]];
+      const b = byId[id];
+      if (!a || !b) return;
+      drawArrow(a, b, true, edge ? edge.confidence : "AMBIGUOUS");
+    });
+  } else {
+    edges.forEach((edge) => {
+      const a = byId[edge.source];
+      const b = byId[edge.target];
+      if (!a || !b || a.shown === false || b.shown === false) return;
+      drawArrow(a, b, false, edge.confidence || "EXTRACTED");
+    });
+  }
   nodes.forEach((node) => {
     if (node.shown === false) return;
-    const dim = false;
     const match = query && node.name.toLowerCase().includes(query);
-    const radius = node.id === (selected && selected.id) ? 11 : (node.risk >= 70 ? 8 : 6);
+    const onWalk = focus.has(node.id);
+    const radius = node.id === (selected && selected.id) ? 12 : (onWalk ? 9 : 6);
     ctx.beginPath();
     ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
     ctx.fillStyle = kindColor[node.kind] || "#94a3b8";
-    ctx.globalAlpha = dim ? 0.18 : 1;
+    ctx.globalAlpha = 1;
     ctx.fill();
-    if (node.risk >= 70) {
+    if ((node.findings || []).length) {
       ctx.strokeStyle = node.risk >= 85 ? "#fb7185" : "#fb923c";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2.5;
       ctx.stroke();
     }
-    if (match || node.degree >= 3 || node.id === (selected && selected.id) || focus.has(node.id)) {
+    if ((data.graph.god_nodes || []).some((item) => item.id === node.id)) {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = "#e7eefc";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    if (match || onWalk || node.id === (selected && selected.id) || !activePath) {
       const order = pathOrder(node.id);
-      const label = (order ? order + "  " : "") + node.name;
-      ctx.font = "12px Segoe UI, sans-serif";
+      const control = (node.findings && node.findings[0] && node.findings[0].rule) ? " · " + node.findings[0].rule : "";
+      const label = (order ? order + "  " : "") + shortName(node.name) + control;
+      ctx.font = "13px Segoe UI, sans-serif";
       ctx.fillStyle = "#e7eefc";
-      ctx.fillText(label, node.x + 12, node.y - 10);
+      ctx.fillText(label, node.x + 14, node.y - 12);
     }
   });
   ctx.restore();
@@ -326,26 +354,37 @@ function draw() {
 
 function pathOrder(id) {
   if (!activePath) return "";
-  const ids = [];
-  (activePath.node_ids || []).forEach((nodeId) => { if (!ids.includes(nodeId)) ids.push(nodeId); });
-  const index = ids.indexOf(id);
+  const index = walkIds(activePath).indexOf(id);
   return index >= 0 ? String(index + 1) : "";
 }
 
-function drawArrow(a, b, hot, inferred, dim) {
+function walkEdge(source, target) {
+  const walked = (activePath && activePath.edges) || [];
+  const hit = walked.find((edge) => edge.source === source && edge.target === target);
+  if (hit) return { confidence: hit.confidence || "EXTRACTED", relation: hit.kind || hit.relation || "" };
+  return edges.find((edge) => edge.source === source && edge.target === target) || null;
+}
+
+function shortName(name) {
+  const text = String(name || "");
+  return text.length > 32 ? text.slice(0, 31) + "…" : text;
+}
+
+function drawArrow(a, b, hot, confidence) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const dist = Math.hypot(dx, dy) || 1;
-  const pad = 12;
+  const pad = 14;
   const x2 = b.x - dx / dist * pad;
   const y2 = b.y - dy / dist * pad;
+  const kind = confidence || "EXTRACTED";
   ctx.beginPath();
   ctx.moveTo(a.x, a.y);
   ctx.lineTo(x2, y2);
-  ctx.strokeStyle = hot ? "#f8fafc" : (inferred ? "#64748b" : "#94a3b8");
-  ctx.globalAlpha = dim ? 0.12 : 0.9;
-  ctx.lineWidth = hot ? 2.6 : 1;
-  ctx.setLineDash(inferred ? [5, 4] : []);
+  ctx.strokeStyle = kind === "AMBIGUOUS" ? "#facc15" : (hot ? "#f8fafc" : (kind === "INFERRED" ? "#94a3b8" : "#d6e4ff"));
+  ctx.globalAlpha = 0.95;
+  ctx.lineWidth = hot ? 2.8 : 1.2;
+  ctx.setLineDash(kind === "AMBIGUOUS" ? [2, 5] : (kind === "INFERRED" ? [6, 4] : []));
   ctx.stroke();
   ctx.setLineDash([]);
   const angle = Math.atan2(dy, dx);
@@ -429,17 +468,24 @@ function select(node) {
   selected = node;
   const outgoing = edges.filter((edge) => edge.source === node.id);
   const incoming = edges.filter((edge) => edge.target === node.id);
+  const trunk = activePath ? walkIds(activePath) : [];
+  const walkPairs = new Set();
+  trunk.forEach((id, index) => { if (index) walkPairs.add(trunk[index - 1] + "|" + id); });
   const detail = document.getElementById("detail");
   const seen = new Set();
   detail.textContent = "";
   add(detail, "h2", node.name);
+  const control = (node.findings && node.findings[0] && node.findings[0].rule) || "";
+  const step = pathOrder(node.id);
   const meta = [
     "Source: " + (node.file || "resolved") + (node.line ? ":" + node.line : ""),
     "Language: " + (node.language || "resolved"),
     "Kind: " + node.kind,
     "Community: " + node.community_label,
-    "Degree: " + node.degree
-  ];
+    "Degree: " + node.degree,
+    control ? "Baseline: " + control : "",
+    step && activePath ? "Walk step " + step + " of " + walkIds(activePath).length : ""
+  ].filter(Boolean);
   add(detail, "p", meta.join("\n")).style.whiteSpace = "pre-wrap";
   const related = data.paths.filter((path) => (path.node_ids || []).includes(node.id) || (path.hops || []).some((hop) => hop.node_id === node.id));
   add(detail, "h3", "Paths to eliminate (" + related.length + ")");
@@ -449,9 +495,13 @@ function select(node) {
     add(detail, "h3", "On this component");
     node.findings.forEach((finding) => detail.appendChild(findingBlock(finding, seen)));
   }
-  const links = outgoing.concat(incoming).filter((edge) => !seen.has(edgeKey(edge)));
+  const links = outgoing.concat(incoming).filter((edge) => {
+    if (seen.has(edgeKey(edge))) return false;
+    if (!walkPairs.size) return true;
+    return walkPairs.has(edge.source + "|" + edge.target);
+  });
   if (links.length) {
-    add(detail, "h3", "Connections (" + links.length + ")");
+    add(detail, "h3", walkPairs.size ? "On this walk" : "Connections (" + links.length + ")");
     links.forEach((edge) => {
       const arrow = edge.source === node.id ? "→ " + nameOf(edge.target) : "← " + nameOf(edge.source);
       add(detail, "p", arrow + " [" + edge.relation + "] [" + edge.confidence + "]" + evidenceSuffix(edge, seen));
@@ -470,6 +520,11 @@ function pathCard(path, highlight, seen) {
   title.appendChild(band);
   title.appendChild(document.createTextNode(" · " + String(path.category || "").replace(/_/g, " ")));
   card.appendChild(title);
+  const trunk = walkIds(path);
+  if (trunk.length > 1) {
+    add(card, "h3", "Walk");
+    add(card, "p", trunk.map((id, index) => (index + 1) + ". " + shortName(nameOf(id))).join(" → "));
+  }
   const diagnosis = diagnosisText(path);
   const described = (path.hops || []).some((hop) => hop.access);
   add(card, "h3", "Diagnosis");

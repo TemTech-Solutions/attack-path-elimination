@@ -31,6 +31,13 @@
     padding: 12px 14px;
     margin: 0 0 10px;
   }
+  .unused-card { padding: 0; }
+  .unused-card summary {
+    cursor: pointer;
+    padding: 12px 14px;
+    font-weight: 650;
+  }
+  .unused-card .detail { padding: 0 14px 12px; }
   .outcome { min-width: 160px; }
   .count { font-size: 22px; font-weight: 700; }
   .qa { display: grid; grid-template-columns: 180px 1fr; gap: 4px 12px; margin: 8px 0 0; }
@@ -92,10 +99,15 @@ function renderUnused() {
 }
 
 function answerCard(item) {
-  const card = document.createElement("article");
+  const card = document.createElement("details");
   card.className = "unused-card";
-  addText(card, "h3", (item.name || "Symbol") + " · line " + (item.line || ""));
-  addText(card, "p", [item.language, item.kind, item.confidence].filter(Boolean).join(" · "));
+  const summary = document.createElement("summary");
+  const place = item.file ? item.file + ":" + (item.line || "") : "line " + (item.line || "");
+  summary.textContent = (item.name || "Symbol") + " · " + place;
+  card.appendChild(summary);
+  const body = document.createElement("div");
+  body.className = "detail";
+  addText(body, "p", [item.language, item.kind, item.confidence].filter(Boolean).join(" · "));
   const list = document.createElement("dl");
   list.className = "qa";
   [
@@ -110,9 +122,10 @@ function answerCard(item) {
     addText(list, "dt", label);
     addText(list, "dd", value);
   });
-  card.appendChild(list);
-  if (item.window) addText(card, "pre", item.window);
-  else if (item.evidence) addText(card, "pre", item.evidence);
+  body.appendChild(list);
+  if (item.window) addText(body, "pre", item.window);
+  else if (item.evidence) addText(body, "pre", item.evidence);
+  card.appendChild(body);
   return card;
 }
 

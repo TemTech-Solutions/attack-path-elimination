@@ -200,7 +200,6 @@ def install(
 
 
 def _github_workflow(slug: str, ref: str) -> str:
-    action = f"{slug}@{ref}"
     source = f"https://github.com/{slug}"
     return f"""# Installed from {source}
 name: Attack paths
@@ -216,21 +215,20 @@ permissions:
 
 jobs:
   deep-review:
-    name: Deep review
+    name: Deep review & analysis for attack paths
     runs-on: ubuntu-latest
     steps:
       - name: Checkout this repository
         uses: actions/checkout@{CHECKOUT_REF} # v4.4.0
 
-      - name: Deep review
-        uses: {action}
+      - name: Deep review & analysis for attack paths
+        uses: {slug}/.github/actions/review@{ref}
         with:
           phase: review
-          comment: "false"
           artifact: attack-path-review
 
   validation:
-    name: Validation
+    name: Validation of found paths
     needs: deep-review
     runs-on: ubuntu-latest
     steps:
@@ -243,15 +241,14 @@ jobs:
           name: attack-path-review
           path: attack-paths-report
 
-      - name: Validate findings
-        uses: {action}
+      - name: Validation of found paths
+        uses: {slug}/.github/actions/validate@{ref}
         with:
           phase: validate
-          comment: "false"
           artifact: attack-path-validation
 
   exception-scan:
-    name: Exception scan
+    name: Exception scan and scan summary
     needs: validation
     runs-on: ubuntu-latest
     steps:
@@ -264,8 +261,8 @@ jobs:
           name: attack-path-validation
           path: attack-paths-report
 
-      - name: Publish the report
-        uses: {action}
+      - name: Exception scan and scan summary
+        uses: {slug}/.github/actions/report@{ref}
         with:
           phase: report
           exception_scan: "true"

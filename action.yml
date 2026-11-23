@@ -116,18 +116,6 @@ runs:
           cat "${{ inputs.out }}/phase-record.md" >> "$GITHUB_STEP_SUMMARY"
         fi
 
-    - name: Write the scan summary
-      if: (steps.analyze.outcome == 'success' || steps.analyze.outcome == 'failure') && (inputs.phase == 'report' || inputs.phase == '')
-      shell: bash
-      run: |
-        if [ -f "${{ inputs.out }}/summary.md" ]; then
-          cat "${{ inputs.out }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
-        else
-          echo "## Attack paths" >> "$GITHUB_STEP_SUMMARY"
-          echo >> "$GITHUB_STEP_SUMMARY"
-          cat "${{ inputs.out }}/pr-comment.md" >> "$GITHUB_STEP_SUMMARY"
-        fi
-
     - name: Comment on the pull request
       if: ${{ (steps.analyze.outcome == 'success' || steps.analyze.outcome == 'failure') && inputs.comment == 'true' && github.event_name == 'pull_request' && (inputs.phase == 'report' || inputs.phase == '') }}
       continue-on-error: true

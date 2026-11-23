@@ -1,0 +1,72 @@
+name: Validation of found paths
+description: Judge the saved review against the baseline. This job does not walk the repository again.
+
+inputs:
+  path:
+    description: Directory inside the repository to analyze
+    required: false
+    default: "."
+  out:
+    description: Directory containing the review state
+    required: false
+    default: attack-paths-report
+  artifact:
+    description: Name of the uploaded validation
+    required: false
+    default: attack-path-validation
+  phase:
+    description: This job runs the validate phase
+    required: false
+    default: validate
+
+runs:
+  using: composite
+  steps:
+    - name: Require a release tag or a pinned commit
+      shell: bash
+      env:
+        ACTION_REF: ${{ github.action_ref }}
+        ACTION_REPO: ${{ github.action_repository }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        root="$(cd "$ACTION_PATH/../../.." && pwd)"
+        export PYTHONPATH="$root"
+        if command -v python3 >/dev/null 2>&1; then
+          py=python3
+        else
+          py=python
+        fi
+        if "$py" -c 'import os, sys; from pathfinder.action_ref import ref_is_allowed; sys.exit(0 if ref_is_allowed(os.environ.get("ACTION_REF", "")) else 1)'; then
+          exit 0
+        fi
+        echo "::error::Use a Marketplace release tag such as @v1.0.2, or a full commit SHA. A branch name is refused."
+        echo "The workflow called ${ACTION_REPO}@${ACTION_REF}."
+        echo "Or copy install/github/attack-paths.yml from the action repository. That file is already pinned to a full commit SHA."
+        exit 1
+
+    - name: Set up Python
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.12"
+
+    - name: Analyze
+      shell: bash
+      env:
+        PYTHONUNBUFFERED: "1"
+        PHASE: ${{ inputs.phase }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        root="$(cd "$ACTION_PATH/../../.." && pwd)"
+        python -m pip install --upgrade pip
+        python -m pip install --quiet -r "$root/requirements.txt"
+        PYTHONPATH="$root" python -m pathfinder analyze "${{ inputs.path }}" --out "${{ inputs.out }}" --phase "$PHASE"
+
+    - name: Upload the validation
+      if: success() || failure()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ inputs.artifact }}
+        path: ${{ inputs.out }}
+        if-no-files-found: error

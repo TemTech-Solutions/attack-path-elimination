@@ -289,7 +289,12 @@ def test_install_hook_writes_into_the_other_repo(tmp_path: Path):
     published = (Path(__file__).resolve().parents[1] / "install" / "github" / "attack-paths.yml").read_text(encoding="utf-8")
     assert text == published
     assert destination == tmp_path / ".github" / "workflows" / "attack-paths.yml"
-    assert f"uses: TemTech-Solutions/attack-path-elimination@{PUBLIC_REF}" in text
+    assert f"uses: TemTech-Solutions/attack-path-elimination/.github/actions/review@{PUBLIC_REF}" in text
+    assert f"uses: TemTech-Solutions/attack-path-elimination/.github/actions/validate@{PUBLIC_REF}" in text
+    assert f"uses: TemTech-Solutions/attack-path-elimination/.github/actions/report@{PUBLIC_REF}" in text
+    assert "Deep review & analysis for attack paths" in text
+    assert "Validation of found paths" in text
+    assert "Exception scan and scan summary" in text
     assert "deep-review:" in text
     assert "validation:" in text
     assert "exception-scan:" in text

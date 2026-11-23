@@ -100,7 +100,7 @@ def build_graph(result: dict) -> dict:
     _annotate_paths(result.get("paths") or [], edges)
     return {
         "schema_version": SCHEMA_VERSION,
-        "principle": "Each edge is EXTRACTED or INFERRED. Path confidence is the weakest hop.",
+        "principle": "EXTRACTED was read from a file. INFERRED was resolved across files. AMBIGUOUS did not settle on one relationship. A path's confidence is its weakest hop.",
         "nodes": view_nodes,
         "edges": view_edges,
         "communities": communities,
@@ -137,7 +137,7 @@ def render_graph_report(result: dict) -> str:
     lines = [
         f"# {result.get('repository') or 'Repository'} attack graph",
         "",
-        "Each edge is EXTRACTED when the relationship is written in a source file, and INFERRED when the analyzer resolved it across files or runtime configuration. A path's confidence is its weakest hop.",
+        "EXTRACTED was read from a file. INFERRED was resolved across files. AMBIGUOUS did not settle on one relationship. A path's confidence is its weakest hop. The walk below is the path, in order.",
         "",
         "## God nodes",
         "",
@@ -151,6 +151,13 @@ def render_graph_report(result: dict) -> str:
     for community in graph.get("communities") or []:
         lines.append(f"- {community['label']} · {community['size']} nodes")
     lines.extend(["", "## Paths", ""])
+    names = {node["id"]: node.get("name") or node["id"] for node in result.get("nodes") or []}
+    rules: dict[str, str] = {}
+    for finding in result.get("findings") or []:
+        node_id = finding.get("node_id")
+        rule = finding.get("rule") or ""
+        if node_id and rule and node_id not in rules:
+            rules[node_id] = rule
     for path in result.get("paths") or []:
         lines.append(
             f"### {path['band']} {path['score']} {path['category']} · {path.get('confidence', 'INFERRED')}"
@@ -158,9 +165,20 @@ def render_graph_report(result: dict) -> str:
         lines.append("")
         lines.append(path["narrative"])
         lines.append("")
-        for edge in path.get("graph_edges") or []:
+        lines.append(f"Walk · weakest hop {path.get('confidence') or 'INFERRED'}")
+        edges = path.get("graph_edges") or []
+        if not edges:
+            lines.append("- The hops are recorded. No resolved edge joins them.")
+        for index, edge in enumerate(edges, start=1):
+            source = names.get(edge["source"], edge["source"][:8])
+            target = names.get(edge["target"], edge["target"][:8])
+            control = rules.get(edge["target"]) or rules.get(edge["source"]) or ""
+            mark = f" · {control}" if control else ""
+            place = ""
+            if edge.get("file"):
+                place = f" {edge['file']}" + (f":{edge['line']}" if edge.get("line") else "")
             lines.append(
-                f"- {edge['source'][:8]} --{edge['kind']}--> {edge['target'][:8]} [{edge['confidence']}] {edge.get('evidence', '')}".rstrip()
+                f"{index}. {source} --{edge['kind']}--> {target} [{edge.get('confidence') or 'EXTRACTED'}]{mark}{place}".rstrip()
             )
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
@@ -466,8 +484,11 @@ def _annotate_paths(paths: list[dict], edges: list[dict]) -> None:
                     "line": edge.get("line"),
                 }
             )
-        inferred = gap or not unique or any(item["confidence"] == "INFERRED" for item in unique)
-        path["confidence"] = "INFERRED" if inferred else "EXTRACTED"
+        rank = {"EXTRACTED": 0, "INFERRED": 1, "AMBIGUOUS": 2}
+        score = 1 if gap or not unique else 0
+        for item in unique:
+            score = max(score, rank.get(item.get("confidence") or "EXTRACTED", 1))
+        path["confidence"] = {0: "EXTRACTED", 1: "INFERRED", 2: "AMBIGUOUS"}[score]
         path["graph_edges"] = unique
 
 

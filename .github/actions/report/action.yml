@@ -1,0 +1,149 @@
+name: Exception scan and scan summary
+description: Publish the report, print the critical issues in this job, and upload the HTML.
+
+inputs:
+  path:
+    description: Directory inside the repository to analyze
+    required: false
+    default: "."
+  out:
+    description: Directory for the HTML report
+    required: false
+    default: attack-paths-report
+  comment:
+    description: Update one pull-request comment with the chains
+    required: false
+    default: "true"
+  exception_scan:
+    description: Drop recorded exceptions from the published findings
+    required: false
+    default: "true"
+  artifact:
+    description: Name of the uploaded HTML report
+    required: false
+    default: attack-path-report
+  max_critical:
+    description: Fail this job when critical paths exceed this count
+    required: false
+    default: "0"
+  max_high:
+    description: Fail this job when high paths exceed this count. Leave empty to report only
+    required: false
+    default: ""
+  phase:
+    description: This job runs the report phase
+    required: false
+    default: report
+
+runs:
+  using: composite
+  steps:
+    - name: Require a release tag or a pinned commit
+      shell: bash
+      env:
+        ACTION_REF: ${{ github.action_ref }}
+        ACTION_REPO: ${{ github.action_repository }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        root="$(cd "$ACTION_PATH/../../.." && pwd)"
+        export PYTHONPATH="$root"
+        if command -v python3 >/dev/null 2>&1; then
+          py=python3
+        else
+          py=python
+        fi
+        if "$py" -c 'import os, sys; from pathfinder.action_ref import ref_is_allowed; sys.exit(0 if ref_is_allowed(os.environ.get("ACTION_REF", "")) else 1)'; then
+          exit 0
+        fi
+        echo "::error::Use a Marketplace release tag such as @v1.0.2, or a full commit SHA. A branch name is refused."
+        echo "The workflow called ${ACTION_REPO}@${ACTION_REF}."
+        echo "Or copy install/github/attack-paths.yml from the action repository. That file is already pinned to a full commit SHA."
+        exit 1
+
+    - name: Set up Python
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.12"
+
+    - name: Analyze
+      id: analyze
+      shell: bash
+      env:
+        PYTHONUNBUFFERED: "1"
+        EXCEPTION_SCAN: ${{ inputs.exception_scan }}
+        MAX_CRITICAL: ${{ inputs.max_critical }}
+        MAX_HIGH: ${{ inputs.max_high }}
+        PHASE: ${{ inputs.phase }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        root="$(cd "$ACTION_PATH/../../.." && pwd)"
+        python -m pip install --upgrade pip
+        python -m pip install --quiet -r "$root/requirements.txt"
+        extra=()
+        if [ "$EXCEPTION_SCAN" = "true" ]; then
+          extra+=(--exception-scan)
+        fi
+        if [ -n "$MAX_CRITICAL" ]; then
+          extra+=(--max-critical "$MAX_CRITICAL")
+        fi
+        if [ -n "$MAX_HIGH" ]; then
+          extra+=(--max-high "$MAX_HIGH")
+        fi
+        if [ -n "$PHASE" ]; then
+          extra+=(--phase "$PHASE")
+        fi
+        PYTHONPATH="$root" python -m pathfinder analyze "${{ inputs.path }}" --out "${{ inputs.out }}" "${extra[@]}"
+
+    - name: Scan summary
+      if: always() && (steps.analyze.outcome == 'success' || steps.analyze.outcome == 'failure')
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.out }}/summary.md" ]; then
+          cat "${{ inputs.out }}/summary.md"
+        fi
+
+    - name: Upload the HTML report
+      if: steps.analyze.outcome == 'success' || steps.analyze.outcome == 'failure'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ inputs.artifact }}
+        path: ${{ inputs.out }}
+        if-no-files-found: error
+
+    - name: Write the scan summary
+      if: steps.analyze.outcome == 'success' || steps.analyze.outcome == 'failure'
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.out }}/summary.md" ]; then
+          cat "${{ inputs.out }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "## Attack paths" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          cat "${{ inputs.out }}/pr-comment.md" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Comment on the pull request
+      if: ${{ (steps.analyze.outcome == 'success' || steps.analyze.outcome == 'failure') && inputs.comment == 'true' && github.event_name == 'pull_request' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+        OUT: ${{ inputs.out }}
+      run: |
+        marker="<!-- pathfinder-attack-paths -->"
+        {
+          echo "$marker"
+          echo
+          cat "$OUT/pr-comment.md"
+        } > "$RUNNER_TEMP/pathfinder-comment.md"
+        existing="$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --jq ".[] | select(.body | contains(\"${marker}\")) | .id" | head -n 1 || true)"
+        if [ -n "$existing" ]; then
+          jq -n --rawfile body "$RUNNER_TEMP/pathfinder-comment.md" '{body:$body}' > "$RUNNER_TEMP/pathfinder-comment.json"
+          gh api --method PATCH "repos/${REPO}/issues/comments/${existing}" --input "$RUNNER_TEMP/pathfinder-comment.json"
+        else
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$RUNNER_TEMP/pathfinder-comment.md"
+        fi
