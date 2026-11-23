@@ -14,7 +14,7 @@ from pathlib import Path
 PUBLIC_SLUG = "TemTech-Solutions/attack-path-elimination"
 # Full commit of the action consumers run. A branch name or moving tag is not a pin.
 # .github/workflows/pin-action.yml rewrites this on each push to main.
-PUBLIC_REF = "f49ef67ae8a74c382b01a64cb033878a60afeee0"
+PUBLIC_REF = "b85cb6018cc84ff572decf8e4ea5fac622b9d134"
 CHECKOUT_REF = "11d5960a326750d5838078e36cf38b85af677262"  # actions/checkout v4.4.0
 DOWNLOAD_REF = "37930b1c2abaa49bbe596cd826c3c89aef350131"  # actions/download-artifact v7.0.0
 PUBLIC_URL = f"https://github.com/{PUBLIC_SLUG}"
