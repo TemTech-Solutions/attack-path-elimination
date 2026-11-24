@@ -133,7 +133,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Attack path elimination
-        uses: TemTech-Solutions/attack-path-elimination@bc87306dca441398372ecadeccc2d0dadfc79275
+        uses: TemTech-Solutions/attack-path-elimination@d2f9955c1017bb75298b8a2366bd5d91e35188aa
 ```
 
 The workflow further down is the two-job file. It runs on pull requests and on `main` or `master`, then fails the job when a critical path remains.
@@ -208,7 +208,7 @@ attack-paths:
   script:
     - git init "$CI_PROJECT_DIR/.pathfinder-tool"
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
-    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" fetch --depth 1 origin bc87306dca441398372ecadeccc2d0dadfc79275
+    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" fetch --depth 1 origin d2f9955c1017bb75298b8a2366bd5d91e35188aa
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" checkout --detach FETCH_HEAD
     - python -m pip install --upgrade pip
     - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
@@ -270,7 +270,7 @@ steps:
       TOOL="$(Agent.TempDirectory)/pathfinder-tool"
       git init "$TOOL"
       git -C "$TOOL" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
-      git -C "$TOOL" fetch --depth 1 origin bc87306dca441398372ecadeccc2d0dadfc79275
+      git -C "$TOOL" fetch --depth 1 origin d2f9955c1017bb75298b8a2366bd5d91e35188aa
       git -C "$TOOL" checkout --detach FETCH_HEAD
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
