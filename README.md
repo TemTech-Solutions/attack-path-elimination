@@ -113,30 +113,76 @@ To scan one repository, commit this workflow on its target branch. The target br
 A pull request into that branch runs the scan once the file is on the target branch. A push runs the scan on every branch that contains the file. The same text is in `install/github/repository-workflow.yml` and at the bottom of `report.html`.
 
 ```yaml
-# Installed from https://github.com/vekis11/attack-path-elimination_POC
+# Installed from https://github.com/TemTech-Solutions/attack-path-elimination
 name: Attack paths
 
 on:
   pull_request:
-
   push:
+    branches: [main, master]
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
-  attack-paths:
+  deep-review:
+    name: Deep review & analysis for attack paths
     runs-on: ubuntu-latest
     steps:
       - name: Checkout this repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Attack path elimination
-        uses: TemTech-Solutions/attack-path-elimination@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+      - name: Deep review & analysis for attack paths
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/review@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+        with:
+          phase: review
+          artifact: attack-path-review
+
+  validation:
+    name: Validation of found paths
+    needs: deep-review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Download the deep review
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: attack-path-review
+          path: attack-paths-report
+
+      - name: Validation of found paths
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/validate@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+        with:
+          phase: validate
+          artifact: attack-path-validation
+
+  exception-scan:
+    name: Exception scan and scan summary
+    needs: validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Download the validation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: attack-path-validation
+          path: attack-paths-report
+
+      - name: Exception scan and scan summary
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/report@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+        with:
+          phase: report
+          exception_scan: "true"
+          max_critical: "0"
+          artifact: attack-path-report
 ```
 
-The workflow further down is the two-job file. It runs on pull requests and on `main` or `master`, then fails the job when a critical path remains.
+That file is also `install/github/attack-paths.yml`. A run shows three jobs. The exception scan fails when a critical path remains.
 
 From the repository you want to scan, add one workflow. The application stays in its own repository. GitHub checks that repository out and runs the analyzer from this action.
 
@@ -160,7 +206,7 @@ git commit -m "Add attack path scan"
 git push
 ```
 
-The workflow runs on pull requests and on pushes to `main` or `master`. It has two jobs. `attack-paths` checks the application out and runs the deep scan. `exception-scan` runs that deep scan again, keeps only findings this checkout confirmed, and drops every recorded exception from the published findings. Each job ends with a **Scan summary** step. That step prints what was found and how many exceptions were skipped. It runs after the attack-path action and before checkout's post step. The pull-request comment and the `attack-path-report` artifact come from `exception-scan`. That job fails when any critical path remains after exceptions. Set `max_critical` higher, or add `max_high: "0"`, to change the limit. The deep-scan job reports and does not fail the workflow. In branch protection, require the **Attack paths** check so a pull request cannot merge while the gate is failed. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
+The workflow runs on pull requests and on pushes to `main` or `master`. It has three jobs. Deep review checks the application out and records the walk. Validation judges those findings and does not walk the repository again. Exception scan drops recorded exceptions, prints the scan summary, and uploads `attack-path-report`. That job fails when any critical path remains. Set `max_critical` higher, or add `max_high: "0"`, to change the limit. In branch protection, require **Exception scan and scan summary** so a pull request cannot merge while the gate is failed. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
 
 Before you add or update that line, open the [Marketplace listing](https://github.com/marketplace/actions/attack-path-elimination) and confirm the latest release shown there. Use that release. A tag or hash copied from an older page stays on the older release until you change the workflow.
 

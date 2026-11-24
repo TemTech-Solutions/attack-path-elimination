@@ -51,27 +51,73 @@ def repository_azure() -> str:
     return _workflow_file("install/azure/repository-workflow.yml", _REPOSITORY_AZURE)
 
 
-_REPOSITORY_WORKFLOW = """# Installed from https://github.com/vekis11/attack-path-elimination_POC
+_REPOSITORY_WORKFLOW = """# Installed from https://github.com/TemTech-Solutions/attack-path-elimination
 name: Attack paths
 
 on:
   pull_request:
-
   push:
+    branches: [main, master]
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
-  attack-paths:
+  deep-review:
+    name: Deep review & analysis for attack paths
     runs-on: ubuntu-latest
     steps:
       - name: Checkout this repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Attack path elimination
-        uses: TemTech-Solutions/attack-path-elimination@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+      - name: Deep review & analysis for attack paths
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/review@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+        with:
+          phase: review
+          artifact: attack-path-review
+
+  validation:
+    name: Validation of found paths
+    needs: deep-review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Download the deep review
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: attack-path-review
+          path: attack-paths-report
+
+      - name: Validation of found paths
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/validate@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+        with:
+          phase: validate
+          artifact: attack-path-validation
+
+  exception-scan:
+    name: Exception scan and scan summary
+    needs: validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Download the validation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: attack-path-validation
+          path: attack-paths-report
+
+      - name: Exception scan and scan summary
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/report@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+        with:
+          phase: report
+          exception_scan: "true"
+          max_critical: "0"
+          artifact: attack-path-report
 """
 
 _REPOSITORY_GITLAB = """# Installed from https://github.com/vekis11/attack-path-elimination_POC

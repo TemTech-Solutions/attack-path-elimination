@@ -22,32 +22,76 @@ To run the scan from the repository itself, add this workflow on the target bran
 GitHub reads the workflow from the target branch. A pull request into that branch runs the scan after the file is on the target branch. A push runs the scan on every branch that contains the file.
 
 ```yaml
-# Installed from https://github.com/vekis11/attack-path-elimination_POC
+# Installed from https://github.com/TemTech-Solutions/attack-path-elimination
 name: Attack paths
 
 on:
   pull_request:
-
   push:
+    branches: [main, master]
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
-  attack-paths:
+  deep-review:
+    name: Deep review & analysis for attack paths
     runs-on: ubuntu-latest
     steps:
       - name: Checkout this repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Attack path elimination
-        uses: TemTech-Solutions/attack-path-elimination@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+      - name: Deep review & analysis for attack paths
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/review@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+        with:
+          phase: review
+          artifact: attack-path-review
+
+  validation:
+    name: Validation of found paths
+    needs: deep-review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Download the deep review
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: attack-path-review
+          path: attack-paths-report
+
+      - name: Validation of found paths
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/validate@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+        with:
+          phase: validate
+          artifact: attack-path-validation
+
+  exception-scan:
+    name: Exception scan and scan summary
+    needs: validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Download the validation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: attack-path-validation
+          path: attack-paths-report
+
+      - name: Exception scan and scan summary
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/report@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+        with:
+          phase: report
+          exception_scan: "true"
+          max_critical: "0"
+          artifact: attack-path-report
 ```
 
-The same file is `install/github/repository-workflow.yml`. The report shows it under **Add this scan to a repository**, in **GitHub on the target branch**.
-
-The two-job workflow below is the other GitHub file. It checks the findings again and fails the job when a critical path remains.
+The same file is `install/github/repository-workflow.yml` and `install/github/attack-paths.yml`. The report shows it under **Add this scan to a repository**, in **GitHub on the target branch**. A run shows three jobs. The exception scan fails when a critical path remains.
 
 Open a terminal in the repository you want to scan. This is not the attack-path-elimination folder.
 
@@ -79,7 +123,7 @@ python -m pathfinder install path/to/repository-to-scan
 
 Push the workflow to `main` or `master`. It also runs when a pull request is opened.
 
-The installed workflow has two jobs. `attack-paths` checks out the application repository with `actions/checkout` pinned to a full commit SHA, then runs the deep scan. `exception-scan` runs that deep scan again, keeps only findings this checkout confirmed, and drops every recorded exception from the published findings. Each job then runs **Scan summary**, which prints the high-level result before checkout's post step. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
+The installed workflow has three jobs. Deep review checks out the application repository with `actions/checkout` pinned to a full commit SHA and records the walk. Validation judges those findings and does not walk the repository again. Exception scan drops recorded exceptions and prints the scan summary. The `uses:` line must be a release tag or a full 40-character commit SHA. `@main` and `@master` stop the job before the scan starts.
 
 Before you add or update that line, open the [Marketplace listing](https://github.com/marketplace/actions/attack-path-elimination) and confirm the latest release shown there. Use that release. A tag or hash copied from an older page stays on the older release until you change the workflow.
 
