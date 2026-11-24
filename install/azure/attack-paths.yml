@@ -14,10 +14,12 @@ pr:
       - main
       - master
 
-pool:
-  vmImage: ubuntu-latest
-
-steps:
+jobs:
+- job: DeepReview
+  displayName: Deep review & analysis for attack paths
+  pool:
+    vmImage: ubuntu-latest
+  steps:
   - checkout: self
     fetchDepth: 1
 
@@ -35,12 +37,89 @@ steps:
       git -C "$TOOL" checkout --detach FETCH_HEAD
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
-      PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
+      PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --phase review
+    displayName: Deep review & analysis for attack paths
+
+  - task: PublishPipelineArtifact@1
+    condition: succeededOrFailed()
+    displayName: Upload the deep review
+    inputs:
+      targetPath: $(Build.ArtifactStagingDirectory)/attack-paths-report
+      artifact: attack-path-review
+
+- job: Validation
+  displayName: Validation of found paths
+  dependsOn: DeepReview
+  pool:
+    vmImage: ubuntu-latest
+  steps:
+  - checkout: self
+    fetchDepth: 1
+
+  - task: DownloadPipelineArtifact@2
+    displayName: Download the deep review
+    inputs:
+      artifact: attack-path-review
+      path: $(Build.ArtifactStagingDirectory)/attack-paths-report
+
+  - task: UsePythonVersion@0
+    displayName: Use Python 3.12
+    inputs:
+      versionSpec: "3.12"
+
+  - bash: |
+      set -euo pipefail
+      TOOL="$(Agent.TempDirectory)/pathfinder-tool"
+      git init "$TOOL"
+      git -C "$TOOL" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
+      git -C "$TOOL" fetch --depth 1 origin 31ff9331bc0690a8b0b7973c9e32fe244976130a
+      git -C "$TOOL" checkout --detach FETCH_HEAD
+      python -m pip install --upgrade pip
+      python -m pip install -r "$TOOL/requirements.txt"
+      PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --phase validate
+    displayName: Validation of found paths
+
+  - task: PublishPipelineArtifact@1
+    condition: succeededOrFailed()
+    displayName: Upload the validation
+    inputs:
+      targetPath: $(Build.ArtifactStagingDirectory)/attack-paths-report
+      artifact: attack-path-validation
+
+- job: ExceptionScan
+  displayName: Exception scan and scan summary
+  dependsOn: Validation
+  pool:
+    vmImage: ubuntu-latest
+  steps:
+  - checkout: self
+    fetchDepth: 1
+
+  - task: DownloadPipelineArtifact@2
+    displayName: Download the validation
+    inputs:
+      artifact: attack-path-validation
+      path: $(Build.ArtifactStagingDirectory)/attack-paths-report
+
+  - task: UsePythonVersion@0
+    displayName: Use Python 3.12
+    inputs:
+      versionSpec: "3.12"
+
+  - bash: |
+      set -euo pipefail
+      TOOL="$(Agent.TempDirectory)/pathfinder-tool"
+      git init "$TOOL"
+      git -C "$TOOL" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
+      git -C "$TOOL" fetch --depth 1 origin 31ff9331bc0690a8b0b7973c9e32fe244976130a
+      git -C "$TOOL" checkout --detach FETCH_HEAD
+      python -m pip install --upgrade pip
+      python -m pip install -r "$TOOL/requirements.txt"
       gate=0
-      PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --exception-scan --max-critical 0 || gate=$?
+      PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report" --phase report --exception-scan --max-critical 0 || gate=$?
       cat "$(Build.ArtifactStagingDirectory)/attack-paths-report/summary.md"
       exit "$gate"
-    displayName: Analyze attack paths
+    displayName: Exception scan and scan summary
 
   - task: PublishPipelineArtifact@1
     condition: succeededOrFailed()

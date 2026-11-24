@@ -110,79 +110,7 @@ To scan one repository, commit this workflow on its target branch. The target br
 3. Save the file as `.github/workflows/attack-paths.yml`.
 4. Commit it and push the target branch.
 
-A pull request into that branch runs the scan once the file is on the target branch. A push runs the scan on every branch that contains the file. The same text is in `install/github/repository-workflow.yml` and at the bottom of `report.html`.
-
-```yaml
-# Installed from https://github.com/TemTech-Solutions/attack-path-elimination
-name: Attack paths
-
-on:
-  pull_request:
-  push:
-    branches: [main, master]
-
-permissions:
-  contents: read
-  pull-requests: write
-
-jobs:
-  deep-review:
-    name: Deep review & analysis for attack paths
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout this repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Deep review & analysis for attack paths
-        uses: TemTech-Solutions/attack-path-elimination/.github/actions/review@31ff9331bc0690a8b0b7973c9e32fe244976130a
-        with:
-          phase: review
-          artifact: attack-path-review
-
-  validation:
-    name: Validation of found paths
-    needs: deep-review
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout this repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Download the deep review
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: attack-path-review
-          path: attack-paths-report
-
-      - name: Validation of found paths
-        uses: TemTech-Solutions/attack-path-elimination/.github/actions/validate@31ff9331bc0690a8b0b7973c9e32fe244976130a
-        with:
-          phase: validate
-          artifact: attack-path-validation
-
-  exception-scan:
-    name: Exception scan and scan summary
-    needs: validation
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout this repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Download the validation
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: attack-path-validation
-          path: attack-paths-report
-
-      - name: Exception scan and scan summary
-        uses: TemTech-Solutions/attack-path-elimination/.github/actions/report@31ff9331bc0690a8b0b7973c9e32fe244976130a
-        with:
-          phase: report
-          exception_scan: "true"
-          max_critical: "0"
-          artifact: attack-path-report
-```
-
-That file is also `install/github/attack-paths.yml`. A run shows three jobs. The exception scan fails when a critical path remains.
+A pull request into that branch runs the scan once the file is on the target branch. A push runs the scan on every branch that contains the file. The workflow is [install/github/attack-paths.yml](https://github.com/TemTech-Solutions/attack-path-elimination/blob/main/install/github/attack-paths.yml). [install/github/repository-workflow.yml](https://github.com/TemTech-Solutions/attack-path-elimination/blob/main/install/github/repository-workflow.yml) is the same file. A run shows three jobs. Deep review records the walk. Validation judges those findings and does not walk the repository again. Exception scan drops recorded exceptions, prints the scan summary, and fails when a critical path remains.
 
 From the repository you want to scan, add one workflow. The application stays in its own repository. GitHub checks that repository out and runs the analyzer from this action.
 
@@ -242,30 +170,7 @@ Add `--max-high 0` when high paths should fail the command too. Without either f
 
 ## How do I run it on GitLab?
 
-Check out the target branch in the repository you want to scan. Save the workflow as `attack-paths.gitlab-ci.yml`. On that same branch, add `include: local: attack-paths.gitlab-ci.yml` to `.gitlab-ci.yml`. Commit both files and push the target branch. A merge request into that branch runs the scan after the files are on the target branch. The same text is `install/gitlab/repository-workflow.gitlab-ci.yml` and at the bottom of `report.html`.
-
-```yaml
-# Installed from https://github.com/vekis11/attack-path-elimination_POC
-attack-paths:
-  image: python:3.12
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH
-  script:
-    - git init "$CI_PROJECT_DIR/.pathfinder-tool"
-    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
-    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" fetch --depth 1 origin 31ff9331bc0690a8b0b7973c9e32fe244976130a
-    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" checkout --detach FETCH_HEAD
-    - python -m pip install --upgrade pip
-    - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
-    - PYTHONUNBUFFERED=1 PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
-  artifacts:
-    when: always
-    paths:
-      - attack-paths-report/
-```
-
-The job further down is the other GitLab file. It fails the job when a critical path remains.
+Check out the target branch in the repository you want to scan. Save the workflow as `attack-paths.gitlab-ci.yml`. On that same branch, add `include: local: attack-paths.gitlab-ci.yml` to `.gitlab-ci.yml`. Commit both files and push the target branch. A merge request into that branch runs the scan after the files are on the target branch. The workflow is [install/gitlab/attack-paths.gitlab-ci.yml](https://github.com/TemTech-Solutions/attack-path-elimination/blob/main/install/gitlab/attack-paths.gitlab-ci.yml). [install/gitlab/repository-workflow.gitlab-ci.yml](https://github.com/TemTech-Solutions/attack-path-elimination/blob/main/install/gitlab/repository-workflow.gitlab-ci.yml) is the same file. A pipeline shows three jobs: deep review, validation, and the exception scan. The exception scan prints the summary and fails when a critical path remains.
 
 From the application repository:
 
@@ -281,57 +186,11 @@ include:
   - local: attack-paths.gitlab-ci.yml
 ```
 
-The job runs on merge requests and on the default branch. It fetches the full commit hash pinned in that file from `https://github.com/TemTech-Solutions/attack-path-elimination.git`, installs dependencies after upgrading pip, and lists every file and component in the log. The job then prints `summary.md`. GitLab and Azure hooks stay on that hash. The release-tag option above is for the GitHub Action `uses:` line. Artifacts are under `attack-paths-report/`: `summary.md`, `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
+The pipeline runs on merge requests and on the default branch. Each job fetches the commit recorded in that file, upgrades pip, and runs one phase. Deep review lists every file and component. Validation judges the saved review and does not walk the repository again. Exception scan prints `summary.md`. GitLab and Azure stay on that commit. A release tag belongs on the GitHub Action `uses:` line, and the three GitHub jobs can use one only after a release contains `.github/actions/review`, `validate`, and `report`. Artifacts are under `attack-paths-report/`: `summary.md`, `report.html`, `graph.html`, `threat-model.html`, `unused.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
 
 ## How do I run it on Azure DevOps?
 
-Check out the target branch in the repository you want to scan. Save the workflow as `azure-pipelines/attack-paths.yml`, commit it, and push the target branch. In Azure DevOps, create a pipeline from that file. A pull request into the target branch runs the scan after the file is on the target branch. The same text is `install/azure/repository-workflow.yml` and at the bottom of `report.html`.
-
-```yaml
-# Installed from https://github.com/vekis11/attack-path-elimination_POC
-trigger:
-  branches:
-    include:
-      - "*"
-
-pr:
-  branches:
-    include:
-      - "*"
-
-pool:
-  vmImage: ubuntu-latest
-
-steps:
-  - checkout: self
-    fetchDepth: 1
-
-  - task: UsePythonVersion@0
-    displayName: Use Python 3.12
-    inputs:
-      versionSpec: "3.12"
-
-  - bash: |
-      set -euo pipefail
-      TOOL="$(Agent.TempDirectory)/pathfinder-tool"
-      git init "$TOOL"
-      git -C "$TOOL" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
-      git -C "$TOOL" fetch --depth 1 origin 31ff9331bc0690a8b0b7973c9e32fe244976130a
-      git -C "$TOOL" checkout --detach FETCH_HEAD
-      python -m pip install --upgrade pip
-      python -m pip install -r "$TOOL/requirements.txt"
-      PYTHONUNBUFFERED=1 PYTHONPATH="$TOOL" python -m pathfinder analyze "$(Build.SourcesDirectory)" --out "$(Build.ArtifactStagingDirectory)/attack-paths-report"
-    displayName: Attack path elimination
-
-  - task: PublishPipelineArtifact@1
-    condition: succeededOrFailed()
-    displayName: Publish attack path report
-    inputs:
-      targetPath: $(Build.ArtifactStagingDirectory)/attack-paths-report
-      artifact: attack-path-report
-```
-
-The pipeline further down is the other Azure file. It fails the job when a critical path remains.
+Check out the target branch in the repository you want to scan. Save the workflow as `azure-pipelines/attack-paths.yml`, commit it, and push the target branch. In Azure DevOps, create a pipeline from that file. A pull request into the target branch runs the scan after the file is on the target branch. The pipeline is [install/azure/attack-paths.yml](https://github.com/TemTech-Solutions/attack-path-elimination/blob/main/install/azure/attack-paths.yml). [install/azure/repository-workflow.yml](https://github.com/TemTech-Solutions/attack-path-elimination/blob/main/install/azure/repository-workflow.yml) is the same file. A run shows three jobs: deep review, validation, and the exception scan. The exception scan prints the summary, publishes `attack-path-report`, and fails when a critical path remains.
 
 From the application repository:
 
@@ -353,7 +212,7 @@ Or `python -m pathfinder install path\to\repository-to-scan --platform azure`.
 
 In Azure DevOps, create a pipeline from that file: **Pipelines**, **New pipeline**, select the repository, then **Existing Azure Pipelines YAML file**, and choose `azure-pipelines/attack-paths.yml`. Commit and run it.
 
-The pipeline runs on pull requests and on pushes to `main` or `master`. It checks the application out, fetches the full commit hash pinned in that file, upgrades pip, and lists every file and component in the log. The log then prints `summary.md`. The artifact is `attack-path-report`, and it contains `summary.md`, `report.html`, `graph.html`, `threat-model.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
+The pipeline runs on pull requests and on pushes to `main` or `master`. It has three jobs. Deep review checks the application out and records the walk. Validation judges those findings and does not walk the repository again. Exception scan prints `summary.md`, publishes `attack-path-report`, and fails when a critical path remains. The artifact contains `summary.md`, `report.html`, `graph.html`, `threat-model.html`, `unused.html`, `graph-report.md`, `pr-comment.md`, and `graph.json`.
 
 On an Azure Repos pull request, the pipeline updates one comment marked `<!-- pathfinder-attack-paths -->`. That comment needs the build service identity to have permission to contribute to pull requests. If the permission is missing, the artifact is still published. A repository connected from GitHub or GitLab gets the artifact. The comment step runs for Azure Repos.
 
@@ -486,12 +345,9 @@ Pull-request comments from the service are posted only when `PATHFINDER_POST_COM
 ## Where is the behavior implemented?
 
 - `action.yml` is the composite Action other repositories run
-- `install/github/repository-workflow.yml` is the GitHub workflow a repository commits on its target branch
-- `install/gitlab/repository-workflow.gitlab-ci.yml` is the GitLab job a repository commits on its target branch
-- `install/azure/repository-workflow.yml` is the Azure pipeline a repository commits on its target branch
-- `install/github/attack-paths.yml` is the two-job workflow those repositories can commit instead
-- `install/gitlab/attack-paths.gitlab-ci.yml` is the GitLab job
-- `install/azure/attack-paths.yml` is the Azure DevOps pipeline
+- [install/github/attack-paths.yml](https://github.com/TemTech-Solutions/attack-path-elimination/blob/main/install/github/attack-paths.yml) is the three-job GitHub workflow a repository commits
+- [install/gitlab/attack-paths.gitlab-ci.yml](https://github.com/TemTech-Solutions/attack-path-elimination/blob/main/install/gitlab/attack-paths.gitlab-ci.yml) is the three-job GitLab pipeline
+- [install/azure/attack-paths.yml](https://github.com/TemTech-Solutions/attack-path-elimination/blob/main/install/azure/attack-paths.yml) is the three-job Azure DevOps pipeline
 - `pathfinder/baseline.py` is the control catalog taken from the OWASP Subtractive Hardening baseline
 - `pathfinder/analyze.py` walks the repository
 - `pathfinder/languages.py` and `pathfinder/platform.py` read languages and platforms that have a dedicated parser

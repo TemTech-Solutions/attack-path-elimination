@@ -12,17 +12,23 @@ import re
 from pathlib import Path
 
 SKIP = {".git", ".pytest_cache", "__pycache__", "out"}
+_SHA = re.compile(r"^[0-9a-f]{40}$")
+_RELEASE = re.compile(r"^v(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*)){0,3}(?:-[0-9A-Za-z.-]+)?$")
 
 
 def rewrite(root: Path, new: str) -> str | None:
-    if not re.fullmatch(r"[0-9a-f]{40}", new):
+    if not _SHA.fullmatch(new):
         raise SystemExit("NEW_SHA must be a 40-character commit SHA")
     install_py = root / "pathfinder" / "install.py"
     text = install_py.read_text(encoding="utf-8")
-    found = re.search(r'PUBLIC_REF = "([0-9a-f]{40})"', text)
+    found = re.search(r'PUBLIC_REF = "([^"]+)"', text)
     if not found:
-        raise SystemExit("PUBLIC_REF is not a full commit SHA")
+        raise SystemExit("PUBLIC_REF is missing")
     old = found.group(1)
+    if _RELEASE.fullmatch(old):
+        return None
+    if not _SHA.fullmatch(old):
+        raise SystemExit("PUBLIC_REF is not a full commit SHA or a release tag")
     if old == new:
         return None
     for path in root.rglob("*"):

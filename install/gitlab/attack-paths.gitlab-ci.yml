@@ -2,22 +2,51 @@
 # Include this file from the repository's .gitlab-ci.yml:
 # include:
 #   - local: attack-paths.gitlab-ci.yml
-attack-paths:
+stages:
+  - deep-review
+  - validation
+  - exception-scan
+
+.attack-paths:
   image: python:3.12
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-  script:
+  before_script:
     - git init "$CI_PROJECT_DIR/.pathfinder-tool"
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" fetch --depth 1 origin 31ff9331bc0690a8b0b7973c9e32fe244976130a
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" checkout --detach FETCH_HEAD
     - python -m pip install --upgrade pip
     - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
-    - PYTHONUNBUFFERED=1 PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report
+
+"Deep review & analysis for attack paths":
+  extends: .attack-paths
+  stage: deep-review
+  script:
+    - PYTHONUNBUFFERED=1 PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --phase review
+  artifacts:
+    paths:
+      - attack-paths-report/
+
+"Validation of found paths":
+  extends: .attack-paths
+  stage: validation
+  needs: ["Deep review & analysis for attack paths"]
+  script:
+    - PYTHONUNBUFFERED=1 PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --phase validate
+  artifacts:
+    paths:
+      - attack-paths-report/
+
+"Exception scan and scan summary":
+  extends: .attack-paths
+  stage: exception-scan
+  needs: ["Validation of found paths"]
+  script:
     - |
       gate=0
-      PYTHONUNBUFFERED=1 PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --exception-scan --max-critical 0 || gate=$?
+      PYTHONUNBUFFERED=1 PYTHONPATH="$CI_PROJECT_DIR/.pathfinder-tool" python -m pathfinder analyze . --out attack-paths-report --phase report --exception-scan --max-critical 0 || gate=$?
       cat attack-paths-report/summary.md
       exit "$gate"
   artifacts:

@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
-_RELEASE = re.compile(r"^v(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*)){0,2}(?:-[0-9A-Za-z.-]+)?$")
+# v1, v1.0.5, and the published v1.0.2.3 tag. A branch name does not match.
+_RELEASE = re.compile(r"^v(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*)){0,3}(?:-[0-9A-Za-z.-]+)?$")
 
 
 def ref_is_allowed(ref: str) -> bool:
