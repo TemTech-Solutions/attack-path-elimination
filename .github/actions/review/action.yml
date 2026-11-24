@@ -50,7 +50,7 @@ runs:
       with:
         python-version: "3.12"
 
-    - name: Analyze
+    - name: Deep review & analysis for attack paths
       shell: bash
       env:
         PYTHONUNBUFFERED: "1"

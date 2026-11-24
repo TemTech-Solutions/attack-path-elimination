@@ -65,18 +65,40 @@ runs:
       with:
         python-version: "3.12"
 
-    - name: Analyze
-      id: analyze
+    - name: Install the analyzer
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install --quiet -r "${{ github.action_path }}/requirements.txt"
+
+    - name: Deep review & analysis for attack paths
+      id: review
+      if: inputs.phase == '' || inputs.phase == 'review'
+      shell: bash
+      env:
+        PYTHONUNBUFFERED: "1"
+      run: |
+        PYTHONPATH="${{ github.action_path }}" python -m pathfinder analyze "${{ inputs.path }}" --out "${{ inputs.out }}" --phase review
+
+    - name: Validation of found paths
+      id: validate
+      if: inputs.phase == 'validate' || (inputs.phase == '' && steps.review.outcome == 'success')
+      shell: bash
+      env:
+        PYTHONUNBUFFERED: "1"
+      run: |
+        PYTHONPATH="${{ github.action_path }}" python -m pathfinder analyze "${{ inputs.path }}" --out "${{ inputs.out }}" --phase validate
+
+    - name: Exception scan and scan summary
+      id: report
+      if: inputs.phase == 'report' || (inputs.phase == '' && steps.validate.outcome == 'success')
       shell: bash
       env:
         PYTHONUNBUFFERED: "1"
         EXCEPTION_SCAN: ${{ inputs.exception_scan }}
         MAX_CRITICAL: ${{ inputs.max_critical }}
         MAX_HIGH: ${{ inputs.max_high }}
-        PHASE: ${{ inputs.phase }}
       run: |
-        python -m pip install --upgrade pip
-        python -m pip install --quiet -r "${{ github.action_path }}/requirements.txt"
         extra=()
         if [ "$EXCEPTION_SCAN" = "true" ]; then
           extra+=(--exception-scan)
@@ -87,13 +109,10 @@ runs:
         if [ -n "$MAX_HIGH" ]; then
           extra+=(--max-high "$MAX_HIGH")
         fi
-        if [ -n "$PHASE" ]; then
-          extra+=(--phase "$PHASE")
-        fi
-        PYTHONPATH="${{ github.action_path }}" python -m pathfinder analyze "${{ inputs.path }}" --out "${{ inputs.out }}" "${extra[@]}"
+        PYTHONPATH="${{ github.action_path }}" python -m pathfinder analyze "${{ inputs.path }}" --out "${{ inputs.out }}" --phase report "${extra[@]}"
 
     - name: Scan summary
-      if: always() && (steps.analyze.outcome == 'success' || steps.analyze.outcome == 'failure') && (inputs.phase == 'report' || inputs.phase == '')
+      if: always() && (steps.report.outcome == 'success' || steps.report.outcome == 'failure')
       shell: bash
       run: |
         if [ -f "${{ inputs.out }}/summary.md" ]; then
@@ -101,7 +120,7 @@ runs:
         fi
 
     - name: Upload the HTML report
-      if: steps.analyze.outcome == 'success' || steps.analyze.outcome == 'failure'
+      if: steps.review.outcome == 'success' || steps.review.outcome == 'failure' || steps.validate.outcome == 'success' || steps.validate.outcome == 'failure' || steps.report.outcome == 'success' || steps.report.outcome == 'failure'
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ inputs.artifact }}
@@ -109,7 +128,7 @@ runs:
         if-no-files-found: error
 
     - name: Record this job
-      if: always() && (steps.analyze.outcome == 'success' || steps.analyze.outcome == 'failure') && (inputs.phase == 'review' || inputs.phase == 'validate')
+      if: always() && (inputs.phase == 'review' || inputs.phase == 'validate') && (steps.review.outcome == 'success' || steps.review.outcome == 'failure' || steps.validate.outcome == 'success' || steps.validate.outcome == 'failure')
       shell: bash
       run: |
         if [ -f "${{ inputs.out }}/phase-record.md" ]; then
@@ -117,7 +136,7 @@ runs:
         fi
 
     - name: Comment on the pull request
-      if: ${{ (steps.analyze.outcome == 'success' || steps.analyze.outcome == 'failure') && inputs.comment == 'true' && github.event_name == 'pull_request' && (inputs.phase == 'report' || inputs.phase == '') }}
+      if: ${{ (steps.report.outcome == 'success' || steps.report.outcome == 'failure') && inputs.comment == 'true' && github.event_name == 'pull_request' }}
       continue-on-error: true
       shell: bash
       env:
