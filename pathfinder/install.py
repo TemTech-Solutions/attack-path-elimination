@@ -14,7 +14,7 @@ from pathlib import Path
 PUBLIC_SLUG = "TemTech-Solutions/attack-path-elimination"
 # Full commit of the action consumers run. A branch name or moving tag is not a pin.
 # .github/workflows/pin-action.yml rewrites this on each push to main.
-PUBLIC_REF = "d2f9955c1017bb75298b8a2366bd5d91e35188aa"
+PUBLIC_REF = "31ff9331bc0690a8b0b7973c9e32fe244976130a"
 CHECKOUT_REF = "11d5960a326750d5838078e36cf38b85af677262"  # actions/checkout v4.4.0
 DOWNLOAD_REF = "37930b1c2abaa49bbe596cd826c3c89aef350131"  # actions/download-artifact v7.0.0
 PUBLIC_URL = f"https://github.com/{PUBLIC_SLUG}"
@@ -72,7 +72,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Deep review & analysis for attack paths
-        uses: TemTech-Solutions/attack-path-elimination/.github/actions/review@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/review@31ff9331bc0690a8b0b7973c9e32fe244976130a
         with:
           phase: review
           artifact: attack-path-review
@@ -92,7 +92,7 @@ jobs:
           path: attack-paths-report
 
       - name: Validation of found paths
-        uses: TemTech-Solutions/attack-path-elimination/.github/actions/validate@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/validate@31ff9331bc0690a8b0b7973c9e32fe244976130a
         with:
           phase: validate
           artifact: attack-path-validation
@@ -112,7 +112,7 @@ jobs:
           path: attack-paths-report
 
       - name: Exception scan and scan summary
-        uses: TemTech-Solutions/attack-path-elimination/.github/actions/report@d2f9955c1017bb75298b8a2366bd5d91e35188aa
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/report@31ff9331bc0690a8b0b7973c9e32fe244976130a
         with:
           phase: report
           exception_scan: "true"
@@ -133,7 +133,7 @@ attack-paths:
   script:
     - git init "$CI_PROJECT_DIR/.pathfinder-tool"
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
-    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" fetch --depth 1 origin d2f9955c1017bb75298b8a2366bd5d91e35188aa
+    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" fetch --depth 1 origin 31ff9331bc0690a8b0b7973c9e32fe244976130a
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" checkout --detach FETCH_HEAD
     - python -m pip install --upgrade pip
     - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
@@ -175,7 +175,7 @@ steps:
       TOOL="$(Agent.TempDirectory)/pathfinder-tool"
       git init "$TOOL"
       git -C "$TOOL" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
-      git -C "$TOOL" fetch --depth 1 origin d2f9955c1017bb75298b8a2366bd5d91e35188aa
+      git -C "$TOOL" fetch --depth 1 origin 31ff9331bc0690a8b0b7973c9e32fe244976130a
       git -C "$TOOL" checkout --detach FETCH_HEAD
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
