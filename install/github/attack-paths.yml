@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Deep review & analysis for attack paths
-        uses: TemTech-Solutions/attack-path-elimination/.github/actions/review@5d9859c2fe7c0686d058277bea257a362fc26e0d
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/review@bc87306dca441398372ecadeccc2d0dadfc79275
         with:
           phase: review
           artifact: attack-path-review
@@ -39,7 +39,7 @@ jobs:
           path: attack-paths-report
 
       - name: Validation of found paths
-        uses: TemTech-Solutions/attack-path-elimination/.github/actions/validate@5d9859c2fe7c0686d058277bea257a362fc26e0d
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/validate@bc87306dca441398372ecadeccc2d0dadfc79275
         with:
           phase: validate
           artifact: attack-path-validation
@@ -59,7 +59,7 @@ jobs:
           path: attack-paths-report
 
       - name: Exception scan and scan summary
-        uses: TemTech-Solutions/attack-path-elimination/.github/actions/report@5d9859c2fe7c0686d058277bea257a362fc26e0d
+        uses: TemTech-Solutions/attack-path-elimination/.github/actions/report@bc87306dca441398372ecadeccc2d0dadfc79275
         with:
           phase: report
           exception_scan: "true"

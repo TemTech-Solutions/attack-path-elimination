@@ -14,7 +14,7 @@ from pathlib import Path
 PUBLIC_SLUG = "TemTech-Solutions/attack-path-elimination"
 # Full commit of the action consumers run. A branch name or moving tag is not a pin.
 # .github/workflows/pin-action.yml rewrites this on each push to main.
-PUBLIC_REF = "5d9859c2fe7c0686d058277bea257a362fc26e0d"
+PUBLIC_REF = "bc87306dca441398372ecadeccc2d0dadfc79275"
 CHECKOUT_REF = "11d5960a326750d5838078e36cf38b85af677262"  # actions/checkout v4.4.0
 DOWNLOAD_REF = "37930b1c2abaa49bbe596cd826c3c89aef350131"  # actions/download-artifact v7.0.0
 PUBLIC_URL = f"https://github.com/{PUBLIC_SLUG}"
@@ -71,7 +71,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Attack path elimination
-        uses: TemTech-Solutions/attack-path-elimination@5d9859c2fe7c0686d058277bea257a362fc26e0d
+        uses: TemTech-Solutions/attack-path-elimination@bc87306dca441398372ecadeccc2d0dadfc79275
 """
 
 _REPOSITORY_GITLAB = """# Installed from https://github.com/vekis11/attack-path-elimination_POC
@@ -87,7 +87,7 @@ attack-paths:
   script:
     - git init "$CI_PROJECT_DIR/.pathfinder-tool"
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
-    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" fetch --depth 1 origin 5d9859c2fe7c0686d058277bea257a362fc26e0d
+    - git -C "$CI_PROJECT_DIR/.pathfinder-tool" fetch --depth 1 origin bc87306dca441398372ecadeccc2d0dadfc79275
     - git -C "$CI_PROJECT_DIR/.pathfinder-tool" checkout --detach FETCH_HEAD
     - python -m pip install --upgrade pip
     - python -m pip install -r "$CI_PROJECT_DIR/.pathfinder-tool/requirements.txt"
@@ -129,7 +129,7 @@ steps:
       TOOL="$(Agent.TempDirectory)/pathfinder-tool"
       git init "$TOOL"
       git -C "$TOOL" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
-      git -C "$TOOL" fetch --depth 1 origin 5d9859c2fe7c0686d058277bea257a362fc26e0d
+      git -C "$TOOL" fetch --depth 1 origin bc87306dca441398372ecadeccc2d0dadfc79275
       git -C "$TOOL" checkout --detach FETCH_HEAD
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
