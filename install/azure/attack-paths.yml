@@ -33,7 +33,7 @@ jobs:
       TOOL="$(Agent.TempDirectory)/pathfinder-tool"
       git init "$TOOL"
       git -C "$TOOL" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
-      git -C "$TOOL" fetch --depth 1 origin 31ff9331bc0690a8b0b7973c9e32fe244976130a
+      git -C "$TOOL" fetch --depth 1 origin 866a3dcccd96de9402b4d954d444d5d50ae91c89
       git -C "$TOOL" checkout --detach FETCH_HEAD
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
@@ -72,7 +72,7 @@ jobs:
       TOOL="$(Agent.TempDirectory)/pathfinder-tool"
       git init "$TOOL"
       git -C "$TOOL" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
-      git -C "$TOOL" fetch --depth 1 origin 31ff9331bc0690a8b0b7973c9e32fe244976130a
+      git -C "$TOOL" fetch --depth 1 origin 866a3dcccd96de9402b4d954d444d5d50ae91c89
       git -C "$TOOL" checkout --detach FETCH_HEAD
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
@@ -111,7 +111,7 @@ jobs:
       TOOL="$(Agent.TempDirectory)/pathfinder-tool"
       git init "$TOOL"
       git -C "$TOOL" remote add origin https://github.com/TemTech-Solutions/attack-path-elimination.git
-      git -C "$TOOL" fetch --depth 1 origin 31ff9331bc0690a8b0b7973c9e32fe244976130a
+      git -C "$TOOL" fetch --depth 1 origin 866a3dcccd96de9402b4d954d444d5d50ae91c89
       git -C "$TOOL" checkout --detach FETCH_HEAD
       python -m pip install --upgrade pip
       python -m pip install -r "$TOOL/requirements.txt"
